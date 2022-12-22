@@ -136,6 +136,25 @@ class Exif_IO
     */
     virtual bool GPSAltitude(double * altitude) const = 0;
 
+#if BMG_EXTENSIONS
+    /*
+    *  Access to DJI specific tags
+    */
+    virtual bool DJIPitch( double* val ) const { return false; }
+    virtual bool DJICameraPitch( double* val ) const { return false; }
+    virtual bool DJIGimbalPitchDegree( double* val ) const { return false; }
+    virtual bool DJIFlightPitchDegree( double* val ) const { return false; }
+
+    virtual bool DJIRoll( double* val ) const { return false; }
+    virtual bool DJICameraRoll( double* val ) const { return false; }
+    virtual bool DJIGimbalRollDegree( double* val ) const { return false; }
+    virtual bool DJIFlightRollDegree( double* val ) const { return false; }
+
+    virtual bool DJIYaw( double* val ) const { return false; }
+    virtual bool DJICameraYaw( double* val ) const { return false; }
+    virtual bool DJIGimbalYawDegree( double* val ) const { return false; }
+    virtual bool DJIFlightYawDegree( double* val ) const { return false; }
+#endif
 };
 
 } // namespace exif

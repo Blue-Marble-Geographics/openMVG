@@ -47,6 +47,11 @@ option(OpenMVG_USE_OPENCV "Build or not opencv+openMVG samples programs" OFF)
 # ==============================================================================
 option(OpenMVG_USE_OCVSIFT "Add or not OpenCV SIFT in available features" OFF)
 
+# Experimental Blue Marble Geograpichs extensions
+# ==============================================================================
+option(OpenMVG_BMG_EXTENSIONS "Enable Blue Marble Geograpichs extensions" OFF)
+
+
 # ==============================================================================
 # Since the LiGT algorithm has a patent protection.
 # See header files in openMVG/multiview/LiGT for more informations.
@@ -89,6 +94,10 @@ MACRO(register_definitions DEF)
   string(REPLACE "-D" "" STRIPPED_DEF ${DEF})
   list(APPEND OpenMVG_DEFINITIONS ${STRIPPED_DEF})
 ENDMACRO()
+
+if (OpenMVG_BMG_EXTENSIONS)
+    register_definitions(-DBMG_EXTENSIONS=1)
+endif()
 
 # Set shared or static mode
 if (OpenMVG_BUILD_SHARED)
@@ -520,6 +529,7 @@ message("** Enable OpenMP parallelization: " ${OpenMVG_USE_OPENMP})
 message("** Build OpenCV+OpenMVG samples programs: " ${OpenMVG_USE_OPENCV})
 message("** Use OpenCV SIFT features: " ${OpenMVG_USE_OCVSIFT})
 message("** Use LiGT for global translation estimation: " ${OpenMVG_USE_LIGT})
+message("** Use Experimental BMG Extensions: " ${OpenMVG_BMG_EXTENSIONS})
 
 message("\n")
 
