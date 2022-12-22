@@ -50,7 +50,7 @@ option(OpenMVG_USE_OCVSIFT "Add or not OpenCV SIFT in available features" OFF)
 # Experimental Blue Marble Geograpichs extensions
 # ==============================================================================
 option(OpenMVG_BMG_EXTENSIONS "Enable Blue Marble Geograpichs extensions" OFF)
-
+option(OpenMVG_SUPRESS_WARNINGS "Supress some compile time warnings" OFF)
 
 # ==============================================================================
 # Since the LiGT algorithm has a patent protection.
@@ -138,6 +138,12 @@ if (UNIX AND NOT OpenMVG_BUILD_COVERAGE)
   set(CMAKE_C_FLAGS_RELEASE "-O3")
   set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 endif ()
+
+if (OpenMVG_SUPRESS_WARNINGS)
+  if(MSVC)
+	SET ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267" FORCE)
+  endif()
+endif(OpenMVG_SUPRESS_WARNINGS)
 
 # ==============================================================================
 # Check C++11 support
