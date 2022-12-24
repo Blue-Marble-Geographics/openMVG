@@ -141,7 +141,7 @@ endif ()
 
 if (OpenMVG_SUPRESS_WARNINGS)
   if(MSVC)
-	SET ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267" FORCE)
+	add_compile_options( /wd4267 /wd4244 )
   endif()
 endif(OpenMVG_SUPRESS_WARNINGS)
 
@@ -536,6 +536,7 @@ message("** Build OpenCV+OpenMVG samples programs: " ${OpenMVG_USE_OPENCV})
 message("** Use OpenCV SIFT features: " ${OpenMVG_USE_OCVSIFT})
 message("** Use LiGT for global translation estimation: " ${OpenMVG_USE_LIGT})
 message("** Use Experimental BMG Extensions: " ${OpenMVG_BMG_EXTENSIONS})
+message("** OpenMVG_SUPRESS_WARNINGS: " ${OpenMVG_SUPRESS_WARNINGS})
 
 message("\n")
 
