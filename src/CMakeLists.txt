@@ -141,7 +141,7 @@ endif ()
 
 if (OpenMVG_DISABLE_WARNINGS)
   if(MSVC)
-	add_compile_options( /wd4267 /wd4244 )
+	add_compile_options( /wd4267 /wd4244 /wd4305 /wd4996 /wd4101 /wd4146 /wd4018 /wd4267)
   endif()
 endif(OpenMVG_DISABLE_WARNINGS)
 
