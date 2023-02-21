@@ -143,21 +143,21 @@ protected:
 
 /// Read feats from file
 template<typename FeaturesT>
-static bool loadFeatsFromFile(
+static bool loadFeatsFromBinFile(
   const std::string & sfileNameFeats,
   FeaturesT & vec_feat)
 {
   vec_feat.clear();
 
-  std::ifstream fileIn(sfileNameFeats.c_str());
+  std::ifstream fileIn(sfileNameFeats.c_str(), std::ios::in | std::ios::binary);
   if (!fileIn.is_open())
-  {
-    return false;
+      return false;
+  std::size_t numFeats = 0;
+  fileIn.read(reinterpret_cast<char*>(&numFeats), sizeof(numFeats));
+  vec_feat.resize(numFeats);
+  for (auto & it :vec_feat) {
+      fileIn.read(reinterpret_cast<char*>(&it),sizeof(it));
   }
-  std::copy(
-    std::istream_iterator<typename FeaturesT::value_type >(fileIn),
-    std::istream_iterator<typename FeaturesT::value_type >(),
-    std::back_inserter(vec_feat));
   const bool bOk = !fileIn.bad();
   fileIn.close();
   return bOk;
@@ -165,15 +165,18 @@ static bool loadFeatsFromFile(
 
 /// Write feats to file
 template<typename FeaturesT >
-static bool saveFeatsToFile(
+static bool saveFeatsToBinFile(
   const std::string & sfileNameFeats,
   FeaturesT & vec_feat)
 {
-  std::ofstream file(sfileNameFeats.c_str());
+  std::ofstream file(sfileNameFeats.c_str(), std::ios::out | std::ios::binary);
   if (!file.is_open())
     return false;
-  std::copy(vec_feat.cbegin(), vec_feat.cend(),
-            std::ostream_iterator<typename FeaturesT::value_type >(file,"\n"));
+  const std::size_t numFeats = vec_feat.size();
+  file.write((const char*) &numFeats,  sizeof(numFeats));
+  for (const auto& iter : vec_feat) {
+      file.write((const char*) &iter, sizeof(iter));
+  }
   const bool bOk = file.good();
   file.close();
   return bOk;

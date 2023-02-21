@@ -53,7 +53,7 @@ public:
     const std::string& sfileNameFeats,
     const std::string& sfileNameDescs) override
   {
-    return loadFeatsFromFile(sfileNameFeats, vec_feats_)
+    return loadFeatsFromBinFile(sfileNameFeats, vec_feats_)
           & loadDescsFromBinFile(sfileNameDescs, vec_descs_);
   }
 
@@ -62,13 +62,13 @@ public:
     const std::string& sfileNameFeats,
     const std::string& sfileNameDescs) const override
   {
-    return saveFeatsToFile(sfileNameFeats, vec_feats_)
+    return saveFeatsToBinFile(sfileNameFeats, vec_feats_)
           & saveDescsToBinFile(sfileNameDescs, vec_descs_);
   }
 
   bool LoadFeatures(const std::string& sfileNameFeats) override
   {
-    return loadFeatsFromFile(sfileNameFeats, vec_feats_);
+    return loadFeatsFromBinFile(sfileNameFeats, vec_feats_);
   }
 
   PointFeatures GetRegionsPositions() const override

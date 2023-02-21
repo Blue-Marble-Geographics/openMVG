@@ -492,7 +492,7 @@ bool ColorHarmonizationEngineGlobal::ReadInputData()
   for ( size_t i = 0; i < _vec_fileNames.size(); ++i )
   {
     const size_t camIndex = i;
-    if ( !loadFeatsFromFile(
+    if ( !loadFeatsFromBinFile(
             stlplus::create_filespec( _sMatchesPath,
                                       stlplus::basename_part( _vec_fileNames[ camIndex ] ),
                                       ".feat" ),
