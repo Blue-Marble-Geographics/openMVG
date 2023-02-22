@@ -679,6 +679,13 @@ Gaussian window size is set to have standard deviation
 #include <math.h>
 #include <stdio.h>
 
+#ifdef __SSE2__
+#include <xmmintrin.h>
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#endif
+#endif
+
 /** @internal @brief Use bilinear interpolation to compute orientations */
 #define VL_SIFT_BILINEAR_ORIENTATIONS 1
 
@@ -1910,6 +1917,11 @@ vl_sift_calc_raw_descriptor (VlSiftFilt const *f,
   }
 }
 
+#ifdef WIN32 // fp:fast
+#pragma float_control(precise, off) // disable precise semantics
+#pragma fp_contract(on)             // enable contractions
+#endif
+
 /** ------------------------------------------------------------------
  ** @brief Compute the descriptor of a keypoint
  **
@@ -1948,6 +1960,7 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
      arbitrarily rotated, we need to consider a window 2W += sqrt(2) x
      SBP x (NBP + 1) pixels wide.
   */
+  float fast_exp( float x );
 
   double const magnif      = f-> magnif ;
 
@@ -2008,63 +2021,158 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
    * Process pixels in the intersection of the image rectangle
    * (1,1)-(M-1,N-1) and the keypoint bounding box.
    */
+  vl_sift_pix const ntFactor = NBO / ( 2 * VL_PI );
+  vl_sift_pix const invTwoSigma = 1.0 / (2.0 * f->windowSize  * f->windowSize) ;
   for(dyi =  VL_MAX (- W, 1 - yi    ) ;
       dyi <= VL_MIN (+ W, h - yi - 2) ; ++ dyi) {
 
-    for(dxi =  VL_MAX (- W, 1 - xi    ) ;
-        dxi <= VL_MIN (+ W, w - xi - 2) ; ++ dxi) {
+    int dxiMax = VL_MAX( -W, 1 - xi );
+    int dxiMin = VL_MIN( +W, w - xi - 2 );
+    /* fractional displacement */
+    double const dy = yi + dyi - y;
+    double dx = xi + dxiMax - x;
+    double nx = ( ct0 * dx + st0 * dy) / SBP ;
+    double ny = (-st0 * dx + ct0 * dy) / SBP ;
+    double const nxInc = ( ct0 / SBP );
+    double const nyInc = (-st0 / SBP );
+
+    /* Perform the processing eGroupSize elements at a time. */
+    /* eGroupSize restricted to 4 now. */
+    enum { eGroupSize = 4 };
+    assert( 4 == eGroupSize );
+    int count = dxiMin - dxiMax + 1;
+    dxi = dxiMax;
+    int numGroups = count / eGroupSize;
+    vl_sift_pix mods[ eGroupSize ];
+    vl_sift_pix nxs[ eGroupSize ];
+    vl_sift_pix nys[ eGroupSize ];
+    vl_sift_pix nts[ eGroupSize ];
+    __declspec(align(64)) vl_sift_pix noExpWin[ eGroupSize ];
+    vl_sift_pix expWin[ eGroupSize ];
+    for (int i = 0; i < numGroups; ++i) {
+      for (int j = 0; j < eGroupSize; ++j, ++dxi) {
+        /* retrieve */
+        vl_sift_pix mod   = *( pt + dxi*xo + dyi*yo + 0 ) ;
+        vl_sift_pix angle = *( pt + dxi*xo + dyi*yo + 1 ) ;
+        vl_sift_pix theta = vl_mod_2pi_f (angle - angle0) ;
+        
+        /* get the displacement normalized w.r.t. the keypoint
+        orientation and extension */
+        mods[ j ] = mod;
+        nxs[ j ] = ( ct0 * dx + st0 * dy) / SBP ;
+        nys[ j ] = (-st0 * dx + ct0 * dy) / SBP ;
+        nts[ j ] = ntFactor * theta;
+        
+        /* Get the Gaussian weight of the sample. The Gaussian window
+         * has a standard deviation equal to NBP/2. Note that dx and dy
+         * are in the normalized frame, so that -NBP/2 <= dx <=
+         * NBP/2. */
+#ifdef __SSE2__
+        /* SSE2+ version computes and stores the power for
+         * calculating eGroupSize exponents at a time.. */
+        noExpWin[ j ] = ((nx*nx + ny*ny)*invTwoSigma) ;
+#else
+        /* Calculate exponents individually. */
+        expWin[ j ] = fast_exp ((nx*nx + ny*ny)*invTwoSigma) ;
+#endif
+      }
+
+#ifdef __SSE2__
+      __m128 fast_exp_sse( __m128 x );
+      _mm_store_ps (expWin, fast_exp_sse(_mm_load_ps(noExpWin))) ;
+#endif
+
+      for (int j = 0; j < eGroupSize; ++j) {
+        /* The sample will be distributed in 8 adjacent bins.
+           We start from the ``lower-left'' bin. */
+        int         binx = (int)vl_floor_d (nxs[j] - 0.5) ;
+        int         biny = (int)vl_floor_d (nys[j] - 0.5) ;
+        int         bint = (int)vl_floor_d (nts[j]) ;
+        vl_sift_pix      rbinx = nx - (binx + 0.5) ;
+        vl_sift_pix      rbiny = ny - (biny + 0.5) ;
+        vl_sift_pix      rbint = nts[j] - bint;
+        int         dbinx ;
+        int         dbiny ;
+        int         dbint ;
+        
+        /* Distribute the current sample into the 8 adjacent bins*/
+        float const winMod = expWin[j] * mods[j];
+        int binx_plus_dbinx = binx ;
+        int atdX = binx * binxo;
+        for(dbinx = 0 ; dbinx < 2 ; ++dbinx, ++binx_plus_dbinx, atdX += binxo) {
+          if((unsigned) (binx_plus_dbinx + 2) < NBP ) {
+            float const xFactor = winMod * vl_abs_f (1 - dbinx - rbinx) ;
+            int biny_plus_dbiny = biny ;
+            int atdY_plus_atdX = biny * binyo + atdX;
+            for(dbiny = 0 ; dbiny < 2 ; ++dbiny, ++biny_plus_dbiny, atdY_plus_atdX += binyo) {
+              if((unsigned) (biny_plus_dbiny + 2) < NBP) {
+                float const xFactorYFactor = vl_abs_f (1 - dbiny - rbiny) ;
+                for(dbint = 0 ; dbint < 2 ; ++dbint) {
+                  vl_sift_pix const weight = xFactor
+                    * vl_abs_f (1 - dbint - rbint) ;
+
+                  //atd(binx+dbinx, biny+dbiny, (bint+dbint) % NBO) += weight ;
+                  *(dpt + ((bint+dbint) % NBO)*binto + atdY_plus_atdX);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    /* Perform the processing on the remaining elements. */
+    for( ; dxi <= dxiMin ; ++ dxi) {
 
       /* retrieve */
       vl_sift_pix mod   = *( pt + dxi*xo + dyi*yo + 0 ) ;
       vl_sift_pix angle = *( pt + dxi*xo + dyi*yo + 1 ) ;
       vl_sift_pix theta = vl_mod_2pi_f (angle - angle0) ;
 
-      /* fractional displacement */
-      vl_sift_pix dx = xi + dxi - x;
-      vl_sift_pix dy = yi + dyi - y;
-
       /* get the displacement normalized w.r.t. the keypoint
          orientation and extension */
       vl_sift_pix nx = ( ct0 * dx + st0 * dy) / SBP ;
       vl_sift_pix ny = (-st0 * dx + ct0 * dy) / SBP ;
-      vl_sift_pix nt = NBO * theta / (2 * VL_PI) ;
+      vl_sift_pix nt = ntFactor * theta;
 
       /* Get the Gaussian weight of the sample. The Gaussian window
        * has a standard deviation equal to NBP/2. Note that dx and dy
        * are in the normalized frame, so that -NBP/2 <= dx <=
        * NBP/2. */
-      vl_sift_pix const wsigma = f->windowSize ;
-      vl_sift_pix win = fast_expn
-        (f, (nx*nx + ny*ny)/(2.0 * wsigma * wsigma)) ;
+      vl_sift_pix win = fast_exp
+        ((nx*nx + ny*ny)*invTwoSigma) ;
 
       /* The sample will be distributed in 8 adjacent bins.
          We start from the ``lower-left'' bin. */
-      int         binx = (int)vl_floor_f (nx - 0.5) ;
-      int         biny = (int)vl_floor_f (ny - 0.5) ;
-      int         bint = (int)vl_floor_f (nt) ;
-      vl_sift_pix rbinx = nx - (binx + 0.5) ;
-      vl_sift_pix rbiny = ny - (biny + 0.5) ;
-      vl_sift_pix rbint = nt - bint ;
+      int         binx = (int)vl_floor_d (nx - 0.5) ;
+      int         biny = (int)vl_floor_d (ny - 0.5) ;
+      int         bint = (int)vl_floor_d (nt) ;
+      vl_sift_pix      rbinx = nx - (binx + 0.5) ;
+      vl_sift_pix      rbiny = ny - (biny + 0.5) ;
+      vl_sift_pix      rbint = nt - bint ;
       int         dbinx ;
       int         dbiny ;
       int         dbint ;
 
       /* Distribute the current sample into the 8 adjacent bins*/
-      for(dbinx = 0 ; dbinx < 2 ; ++dbinx) {
-        for(dbiny = 0 ; dbiny < 2 ; ++dbiny) {
-          for(dbint = 0 ; dbint < 2 ; ++dbint) {
-
-            if (binx + dbinx >= - (NBP/2) &&
-                binx + dbinx <    (NBP/2) &&
-                biny + dbiny >= - (NBP/2) &&
-                biny + dbiny <    (NBP/2) ) {
-              vl_sift_pix weight = win
-                * mod
-                * vl_abs_f (1 - dbinx - rbinx)
-                * vl_abs_f (1 - dbiny - rbiny)
-                * vl_abs_f (1 - dbint - rbint) ;
-
-              atd(binx+dbinx, biny+dbiny, (bint+dbint) % NBO) += weight ;
+      float const winMod = win * mod;
+      int binx_plus_dbinx = binx ;
+      int atdX = binx * binxo;
+      for(dbinx = 0 ; dbinx < 2 ; ++dbinx, ++binx_plus_dbinx, atdX += binxo) {
+        if((unsigned) (binx_plus_dbinx + 2) < NBP ) {
+          float const xFactor = winMod * vl_abs_f (1 - dbinx - rbinx) ;
+          int biny_plus_dbiny = biny ;
+          int atdY_plus_atdX = biny * binyo + atdX;
+          for(dbiny = 0 ; dbiny < 2 ; ++dbiny, ++biny_plus_dbiny, atdY_plus_atdX += binyo) {
+            if((unsigned) (biny_plus_dbiny + 2) < NBP) {
+              float const xFactorYFactor = vl_abs_f (1 - dbiny - rbiny) ;
+              for(dbint = 0 ; dbint < 2 ; ++dbint) {
+                vl_sift_pix const weight = xFactor
+                  * vl_abs_f (1 - dbint - rbint) ;
+          
+                //atd(binx+dbinx, biny+dbiny, (bint+dbint) % NBO) += weight ;
+                *(dpt + ((bint+dbint) % NBO)*binto + atdY_plus_atdX);
+              }
             }
           }
         }
@@ -2096,6 +2204,11 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
   }
 
 }
+
+#ifdef WIN32
+#pragma float_control(precise, on)  // enable precise semantics
+#pragma fp_contract(off)             // enable contractions
+#endif
 
 /** ------------------------------------------------------------------
  ** @brief Initialize a keypoint from its position and scale
@@ -2200,3 +2313,57 @@ vl_sift_keypoint_init (VlSiftFilt const *f,
 
   k->sigma = sigma ;
 }
+
+/* Various support routines */
+
+float fast_exp(float x)
+{
+    /* https://stackoverflow.com/questions/10552280/fast-exp-calculation-possible-to-improve-accuracy-without-losing-too-much-perfo/10792321#10792321 */
+    volatile union {
+        float f;
+        unsigned int i;
+    } cvt;
+
+    /* exp(x) = 2^i * 2^f; i = floor (log2(e) * x), 0 <= f <= 1 */
+    float t = x * 1.442695041f;
+    float fi = floorf (t);
+    float f = t - fi;
+    int i = (int)fi;
+    cvt.f = (0.3371894346f * f + 0.657636276f) * f + 1.00172476f; /* compute 2^f */
+    cvt.i += (i << 23);                                          /* scale by 2^i */
+    return cvt.f;
+}
+
+#ifdef __SSE2__
+/* max. rel. error = 1.72863156e-3 on [-87.33654, 88.72283] */
+__m128 fast_exp_sse (__m128 x)
+{
+    __m128 t, f, e, p, r;
+    __m128i i, j;
+    __m128 l2e = _mm_set1_ps (1.442695041f);  /* log2(e) */
+    __m128 c0  = _mm_set1_ps (0.3371894346f);
+    __m128 c1  = _mm_set1_ps (0.657636276f);
+    __m128 c2  = _mm_set1_ps (1.00172476f);
+
+    /* exp(x) = 2^i * 2^f; i = floor (log2(e) * x), 0 <= f <= 1 */   
+    t = _mm_mul_ps (x, l2e);             /* t = log2(e) * x */
+#ifdef __SSE4_1__
+    e = _mm_floor_ps (t);                /* floor(t) */
+    i = _mm_cvtps_epi32 (e);             /* (int)floor(t) */
+#else /* __SSE4_1__*/
+    i = _mm_cvttps_epi32 (t);            /* i = (int)t */
+    j = _mm_srli_epi32 (_mm_castps_si128 (x), 31); /* signbit(t) */
+    i = _mm_sub_epi32 (i, j);            /* (int)t - signbit(t) */
+    e = _mm_cvtepi32_ps (i);             /* floor(t) ~= (int)t - signbit(t) */
+#endif /* __SSE4_1__*/
+    f = _mm_sub_ps (t, e);               /* f = t - floor(t) */
+    p = c0;                              /* c0 */
+    p = _mm_mul_ps (p, f);               /* c0 * f */
+    p = _mm_add_ps (p, c1);              /* c0 * f + c1 */
+    p = _mm_mul_ps (p, f);               /* (c0 * f + c1) * f */
+    p = _mm_add_ps (p, c2);              /* p = (c0 * f + c1) * f + c2 ~= 2^f */
+    j = _mm_slli_epi32 (i, 23);          /* i << 23 */
+    r = _mm_castsi128_ps (_mm_add_epi32 (j, _mm_castps_si128 (p))); /* r = p * 2^i*/
+    return r;
+}
+#endif

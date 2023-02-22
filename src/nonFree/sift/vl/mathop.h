@@ -130,21 +130,26 @@ vl_mod_2pi_d (double x)
 VL_INLINE long int
 vl_floor_f (float x)
 {
-  long int xi = (long int) x ;
-  if (x >= 0 || (float) xi == x) return xi ;
-  else return xi - 1 ;
+    return floorf( x );
 }
 
 /** @brief Floor and convert to integer
  ** @see vl_floor_f
  **/
+static inline int xs_CRoundToInt(double val)
+{
+    const double _xs_doublemagic             = (double) (6755399441055744.0);      //2^52 * 1.5,  uses limited precisicion to floor
+    val              = val + _xs_doublemagic;
+
+    return ((int*)&val)[0];
+}
 
 VL_INLINE long int
 vl_floor_d (double x)
 {
-  long int xi = (long int) x ;
-  if (x >= 0 || (double) xi == x) return xi ;
-  else return xi - 1 ;
+    const double _xs_doublemagicdelta        = (1.5e-8);                         //almost .5f = .5f + 1e^(number of exp bit)
+    const double _xs_doublemagicroundeps     = (.5f-_xs_doublemagicdelta);       //almost .5f = .5f - 1e^(number of exp bit)
+    return xs_CRoundToInt( x - _xs_doublemagicroundeps );
 }
 
 /** @brief Ceil and convert to integer
