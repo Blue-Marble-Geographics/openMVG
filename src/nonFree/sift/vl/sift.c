@@ -2334,6 +2334,7 @@ float fast_exp(float x)
     return cvt.f;
 }
 
+/* test */
 #ifdef __SSE2__
 /* max. rel. error = 1.72863156e-3 on [-87.33654, 88.72283] */
 __m128 fast_exp_sse (__m128 x)
