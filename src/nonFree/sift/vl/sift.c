@@ -2338,6 +2338,7 @@ float fast_exp(float x)
 /* max. rel. error = 1.72863156e-3 on [-87.33654, 88.72283] */
 __m128 fast_exp_sse (__m128 x)
 {
+    /* https://stackoverflow.com/questions/47025373/fastest-implementation-of-the-natural-exponential-function-using-sse */
     __m128 t, f, e, p, r;
     __m128i i, j;
     __m128 l2e = _mm_set1_ps (1.442695041f);  /* log2(e) */
