@@ -12,3 +12,21 @@
 build*
 *.out
 docs/openmvg.pdf
+/src/nonFree/sift/SIFT_describer.hpp.bak
+/src/nonFree/sift/vl/sift - Copy.c
+/src/nonFree/sift/vl/sift - Copy (7).c
+/src/nonFree/sift/vl/sift - Copy (6).c
+/src/nonFree/sift/vl/sift - Copy (5).c
+/src/nonFree/sift/vl/sift - Copy (4).c
+/src/nonFree/sift/vl/sift - Copy (3).c
+/src/nonFree/sift/vl/sift - Copy (2).c
+/src/nonFree/sift/vl/mathop_sse2.c.bak
+/src/nonFree/sift/vl/imopv.c.bak
+/src/nonFree/sift/vl/imopv_sse2.c.bak
+/src/nonFree/sift/vl/mathop.h.bak
+/src/nonFree/sift/vl/sift.c.bak
+/src/openMVG/features/scalar_regions.hpp.bak
+/src/openMVG/features/feature.hpp.bak
+/src/openMVG/features/binary_regions.hpp.bak
+/src/software/colorHarmonize/colorHarmonizeEngineGlobal.cpp.bak
+/src/nonFree/sift/vl/DirectXMath-jan2022

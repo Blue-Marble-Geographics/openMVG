@@ -11,6 +11,8 @@ This file is part of the VLFeat library and is made available under
 the terms of the BSD license (see the COPYING file).
 */
 
+#include "../../../P2PUtils.h"
+
 #if ! defined(VL_DISABLE_SSE2) & ! defined(__SSE2__)
 #error "Compiling with SSE2 enabled, but no __SSE2__ defined"
 #endif
@@ -104,7 +106,7 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
         while (filti > filt - stop) {
           v = * (VTYPE*) srci ;
           c = VLD1 (filti--) ;
-          acc.v = VADD (acc.v, VMUL (v, c)) ;
+          acc.v = VADD(acc.v, VMUL(v, c));
           srci += src_stride ;
         }
 

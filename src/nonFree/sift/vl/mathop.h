@@ -13,6 +13,7 @@ the terms of the BSD license (see the COPYING file).
 
 #ifndef VL_MATHOP_H
 #define VL_MATHOP_H
+#include "../../../P2PUtils.h"
 
 #include "generic.h"
 #include <math.h>
@@ -130,26 +131,18 @@ vl_mod_2pi_d (double x)
 VL_INLINE long int
 vl_floor_f (float x)
 {
-    return floorf( x );
+    long int xi = (long int) x ;
+    if (x >= 0 || (float) xi == x) return xi ;
+    else return xi - 1 ;
 }
 
-/** @brief Floor and convert to integer
- ** @see vl_floor_f
- **/
-static inline int xs_CRoundToInt(double val)
-{
-    const double _xs_doublemagic             = (double) (6755399441055744.0);      //2^52 * 1.5,  uses limited precisicion to floor
-    val              = val + _xs_doublemagic;
-
-    return ((int*)&val)[0];
-}
 
 VL_INLINE long int
 vl_floor_d (double x)
 {
-    const double _xs_doublemagicdelta        = (1.5e-8);                         //almost .5f = .5f + 1e^(number of exp bit)
-    const double _xs_doublemagicroundeps     = (.5f-_xs_doublemagicdelta);       //almost .5f = .5f - 1e^(number of exp bit)
-    return xs_CRoundToInt( x - _xs_doublemagicroundeps );
+    long int xi = (long int) x ;
+    if (x >= 0 || (double) xi == x) return xi ;
+    else return xi - 1 ;
 }
 
 /** @brief Ceil and convert to integer
@@ -313,6 +306,7 @@ vl_log2_f (float x)
  **
  ** @return Approximation of @c atan2(y,x).
  **/
+/* Original work from https://web.archive.org/web/20140115122512/http://lists.apple.com/archives/perfoptimization-dev/2005/Jan/msg00051.html */
 
 VL_INLINE float
 vl_fast_atan2_f (float y, float x)
@@ -490,7 +484,7 @@ vl_fast_resqrt_d (double x)
 VL_INLINE float
 vl_fast_sqrt_f (float x)
 {
-  return (x < 1e-8) ? 0 : x * vl_fast_resqrt_f (x) ;
+   return (x < 1e-8) ? 0 : x * vl_fast_resqrt_f (x) ;
 }
 
 /** @brief Fast @c sqrt approximation
@@ -500,7 +494,7 @@ vl_fast_sqrt_f (float x)
 VL_INLINE double
 vl_fast_sqrt_d (float x)
 {
-  return (x < 1e-8) ? 0 : x * vl_fast_resqrt_d (x) ;
+    return (x < 1e-8) ? 0 : x * vl_fast_resqrt_d (x) ;
 }
 
 /** @brief Fast @c sqrt approximation

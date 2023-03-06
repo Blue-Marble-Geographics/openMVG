@@ -11,6 +11,8 @@
 
 #include <typeinfo>
 
+#include "../../P2PUtils.h"
+
 #include "openMVG/features/descriptor.hpp"
 #include "openMVG/features/regions.hpp"
 #include "openMVG/features/regions_scale_sort.hpp"
@@ -53,8 +55,13 @@ public:
     const std::string& sfileNameFeats,
     const std::string& sfileNameDescs) override
   {
+#if BINARY_FEATURES
+    return loadFeatsFromBinFile(sfileNameFeats, vec_feats_)
+          & loadDescsFromBinFile(sfileNameDescs, vec_descs_);
+#else
     return loadFeatsFromFile(sfileNameFeats, vec_feats_)
           & loadDescsFromBinFile(sfileNameDescs, vec_descs_);
+#endif
   }
 
   /// Export in two separate files the regions and their corresponding descriptors.
@@ -62,13 +69,22 @@ public:
     const std::string& sfileNameFeats,
     const std::string& sfileNameDescs) const override
   {
+#if BINARY_FEATURES
+      return saveFeatsToBinFile(sfileNameFeats, vec_feats_)
+          & saveDescsToBinFile(sfileNameDescs, vec_descs_);
+#else
     return saveFeatsToFile(sfileNameFeats, vec_feats_)
           & saveDescsToBinFile(sfileNameDescs, vec_descs_);
+#endif
   }
 
   bool LoadFeatures(const std::string& sfileNameFeats) override
   {
+#if BINARY_FEATURES
+    return loadFeatsFromBinFile(sfileNameFeats, vec_feats_);
+#else
     return loadFeatsFromFile(sfileNameFeats, vec_feats_);
+#endif
   }
 
   PointFeatures GetRegionsPositions() const override
