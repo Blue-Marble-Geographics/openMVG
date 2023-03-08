@@ -12,8 +12,8 @@
 
 #define FAST_SIFT_DETECT             (0) /* Needs accuracy testing */
 #define USE_FP_FAST                  (0) /* WIP */
-#define FAST_SIFT_GRADIENT_UPDATE    (0) /* WIP */
-#define FAST_SIFT_CALC_KEYPOINTS     (1) /* 20% faster with ~1% error on 1% of the output */
+#define FAST_SIFT_GRADIENT_UPDATE    (1) /* Faster, adds insignificant error to output. */
+#define FAST_SIFT_CALC_KEYPOINTS     (1) /* Faster with ~1% error on 1% of the output */
 #define FAST_SIFT_CALC_KEYPOINT_ORIENTATIONS (0)
 #define    NO_FAST_EXP               (0)
 #define    USE_FAST_EXP              (1)
@@ -61,6 +61,10 @@
 #define _SetN(a,b,c,d) _mm_set_ps((d),(c),(b),(a))
 #define _SetNDeltas(a,b) _SetN((a), ((a)+(b)), (a)+(b)*2.f, (a)+(b)*3.f)
 #define _SetNMemory(a,b) _SetN((a)[0], (a)[b], (a)[2*(b)], (a)[3*(b)])
+#define _Evens(a,b) _mm_shuffle_ps((a),(b), _MM_SHUFFLE(2, 0, 2, 0))
+#define _Odds(a,b) _mm_shuffle_ps((a),(b), _MM_SHUFFLE(3, 1, 3, 1))
+#define _UnpackLow(a,b) _mm_unpacklo_ps((a), (b))
+#define _UnpackHigh(a,b) _mm_unpackhi_ps((a), (b))
 #define _SetI _mm_set1_epi32
 #define _SetS _mm_set1_epi16
 #define _Load _mm_loadu_ps
@@ -196,6 +200,8 @@
 #include <immintrin.h>
 #endif // __AVX2__
 
+#define _AddI3(a,b,c) _AddI((a),_AddI((b),(c)))
+
 static __forceinline  float FastExpS(float x)
 {
   /* Marginally faster than the table-driven method. */
@@ -320,116 +326,98 @@ static __forceinline _DataF FastAtan(_DataF x)
 
 static __forceinline _DataF FastATan2( _DataF y, _DataF x )
 {
-  // Store pi and pi/2 as constants
-  _DataF const pi = _Set((float) M_PI);
-  _DataF const pi_2 = _Set((float)M_PI_2 );
-
-  // Create bit masks that we will need.
-
-  // The first one is all 1s except from the sign bit:
-  //
-  //     01111111111111111111111111111111
-  //
-  // We can use it to make a float absolute by AND'ing with it.
-  _DataF const abs_mask = _CastFI( _SetI( 0x7FFFFFFF ) );;
-
-  // The second is only the sign bit:
-  //
-  //     10000000000000000000000000000000
-  //
-  // we can use it to extract the sign of a number by AND'ing with it.
-  _DataF const sign_mask = _CastFI( _SetI( 0x80000000 ) );
-
-  // Compare |y| > |x| using the `VCMPPS` instruction. The output of the
-  // instruction is an 8-vector of floats that we can
-  // use as a mask: the elements where the respective comparison is true
-  // will be filled with 1s, with 0s where the comparison is false.
-  //
-  // Visually:
-  //
-  //      5 -5  5 -5  5 -5  5 -5
-  //               >
-  //     -5  5 -5  5 -5  5 -5  5
-  //               =
-  //      1s 0s 1s 0s 1s 0s 1s 0s
-  //
-  // Where `1s = 0xFFFFFFFF` and `0s = 0x00000000`.
-  _DataF const swap_mask = _CmpGT(
-      _And( y, abs_mask ),  // |y|
-      _And( x, abs_mask )   // |x|
+  /* Not bitwise compatible with vl_fast_atan2_*/
+  _DataF const vPi = _Set(M_PI);
+  _DataF const vPi2 = _Set(M_PI_2);
+  _DataF const vAbsMask = _CastFI(_SetI(0x7FFFFFFF ));
+  _DataF const vSignMask = _CastFI(_SetI(0x80000000));
+  _DataF const vSwapMask = _CmpGT(
+    _And( y, vAbsMask ),  /* |y| */
+    _And( x, vAbsMask )   /* |x| */
   );
-  // Create the atan input by "blending" `y` and `x`, according to the mask computed
-  // above. The blend instruction will pick the first or second argument based on
-  // the mask we passed in. In our case we need the number of larger magnitude to
-  // be the denominator.
-  _DataF const lowest = _Blend( y, x, swap_mask ); // pick the lowest between |y| and |x| for each number
-  _DataF const highest = _Blend( x, y, swap_mask );
-  _DataF const atan_input = _Div(
-      lowest,
-      highest
+  /* pick the lowest between |y| and |x| for each number */
+  _DataF const vLow = _Blend(y, x, vSwapMask);
+  _DataF const vHigh = _Blend(x, y, vSwapMask);
+  _DataF const vAtan = _Div(
+    vLow,
+    vHigh
   );
 
-  // Approximate atan
-  _DataF result = FastAtan( atan_input );
+  _DataF vResult = FastAtan( vAtan );
 
-  // If swapped, adjust atan output. We use blending again to leave
-  // the output unchanged if we didn't swap anything.
-  //
-  // If we need to adjust it, we simply carry the sign over from the input
-  // to `pi_2` by using the `sign_mask`. This avoids a more expensive comparison,
-  // and also handles edge cases such as -0 better.
-  result = _Blend(
-      result,
-      _Sub(
-          _Or( pi_2, _And( atan_input, sign_mask ) ),
-          result
-      ),
-      swap_mask
+  vResult = _Blend(
+    vResult,
+    _Sub(
+      _Or(vPi2, _And(vAtan, vSignMask)),
+      vResult
+    ),
+      vSwapMask
   );
-  // Adjust the result depending on the input quadrant.
-  //
-  // We create a mask for the sign of `x` using an arithmetic right shift:
-  // the mask will be all 0s if the sign if positive, and all 1s
-  // if the sign is negative. This avoids a further (and slower) comparison
-  // with 0.
-  _DataF const x_sign_mask = _CastFI( _ShiftRI( _CastIF( x ), 31 ) );
-  // Then use the mask to perform the adjustment only when the sign
-  // if positive, and use the sign bit of `y` to know whether to add
-  // `pi` or `-pi`.
+
+  _DataF const vXSignMask = _CastFI(_ShiftRI( _CastIF( x ), 31));
+
   return _Add(
-      _And(
-          _Xor( pi, _And( sign_mask, y ) ),
-          x_sign_mask
-      ),
-      result
+    _And(
+      _Xor(vPi, _And(vSignMask, y)),
+       vXSignMask
+    ),
+    vResult
   );
 }
+
+#ifndef VL_PI
+#define VL_PI 3.141592653589793
+#endif
 
 static __forceinline _DataF Mod2PILimited( _DataF x )
 {
   // Perform a limited mod on the components of x.
   // x is in the range [-4PI, +4PI]
-  _DataF const vTwoPI = _Set((float) (2. * M_PI));
-  _DataF const vZero = _Set(0.f);
+  _DataF const vTwoPI   = _Set(2 * VL_PI);
+  _DataF const vZero    = _Set(0.f);
 
-  _DataF needsRangeReduction = _CmpGT(x, vTwoPI);
-  _DataF vOffset = _And(needsRangeReduction, vTwoPI);  // 0.0 or 2*Pi
-  _DataF const vResult = _Add(x, vOffset);
+  _DataF needsReduction = _CmpGE(x, vTwoPI);
+  _DataF vOffset        = _And(needsReduction, vTwoPI);  // 0.0 or 2*Pi
+  _DataF const vResult  = _Sub(x, vOffset);
 
-  needsRangeReduction = _CmpLT(x, vZero);
-  vOffset = _And(needsRangeReduction, vTwoPI);  // 0.0 or 2*Pi
+  needsReduction        = _CmpLT(x, vZero);
+  vOffset               = _And(needsReduction, vTwoPI);  // 0.0 or 2*Pi
 
   return _Add(vResult, vOffset);
 }
 
-static __forceinline _DataF GradCalc( _DataF y, _DataF x )
+static __forceinline _DataF FastAbs( _DataF x )
 {
-  _DataF const vTwoPI = _Set((float) (2. * M_PI));
+  _DataF vResult        = _Set(0.f);
+  vResult               = _Sub(vResult, x);
 
-  // atan2 returns [-pi,+pi]
-  _DataF const atan2 = _Add( FastATan2( y, x ), vTwoPI ); // [0, 2*pi]
+  return _Max(vResult, x);
+}
 
-  return Mod2PILimited(atan2);
+static __forceinline _DataF GradCalc2( _DataF y, _DataF x )
+{
+  /* An SSE2-comparable variant of vl_mod_2pi_f(vl_fast_atan2_f (gy, gx) + 2*VL_PI) */
+  _DataF const vTwoPI   = _Set(2 * VL_PI);
+  _DataF const vZero    = _Set(0);
+
+  _DataF const vC3      = _Set(0.1821f);
+  _DataF const vC1      = _Set(0.9675f);
+  _DataF const vAbsY    = FastAbs(_Add(y, _Set(1.19209290E-07F)));
+  
+  _DataF const vHighBit = _CastFI(_SetI( 0x80000000 ));
+
+  _DataF const vNum     = _Sub(x, _Or(vAbsY, _And(x, vHighBit)));
+  _DataF const vDen     = _Add(vAbsY, _Xor(x, _And(x, vHighBit)));
+  _DataF vAngle         = Blend( _Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
+  _DataF const vR       = _Div(vNum, vDen);
+  vAngle                = _Add(
+                             vAngle,
+                             _Mul(_Sub(_Mul(vC3, _Mul(vR, vR)), vC1), vR)
+                          );
+
+  _DataF const atan2    = _Xor(vAngle, _And(y, vHighBit));
+
+  return Mod2PILimited(_Add(atan2, vTwoPI));
 }
 
 static __forceinline float Mod2PILimitedS( float x )
@@ -440,31 +428,24 @@ static __forceinline float Mod2PILimitedS( float x )
 
 static __forceinline _DataF Floor(_DataF x)
 {
-  _DataI const v0 = _SetI(0);
-  _DataI const v1 = _CmpEQI(v0, v0);
-  _DataI const ji = _ShiftRU(v1, 25);
-  _DataI const tmp = _ShiftLI(ji, 23); // I edited this (Added tmp) not sure about it
-  _DataF j = _CastFI(tmp); //create vector 1.0f // I edited this not sure about it
-  _DataI const i = _TruncateIF(x);
-  _DataF const fi = _ConvertFI(i);
-  _DataF const igx = _CmpGT(fi, x);
-  j = _And(igx, j);
+  _DataI const v0       = _SetI(0);
+  _DataI const v1       = _CmpEQI(v0, v0);
+  _DataI const ji       = _ShiftRU(v1, 25);
+  _DataI const tmp      = _ShiftLI(ji, 23); // I edited this (Added tmp) not sure about it
+  _DataF j              = _CastFI(tmp); //create vector 1.0f // I edited this not sure about it
+  _DataI const i        = _TruncateIF(x);
+  _DataF const fi       = _ConvertFI(i);
+  _DataF const igx      = _CmpGT(fi, x);
+  j                     = _And(igx, j);
   
   return _Sub(fi, j);
 }
 
-static __forceinline _DataF FastAbs( _DataF x )
-{
-  _DataF vResult = _Set(0.f);
-  vResult = _Sub(vResult, x);
-
-  return _Max(vResult, x);
-}
-
 static __forceinline _DataI FastMod8( _DataI xmm3 )
 {
-  // x % 2n == x < 0 ? x | ~(2n - 1) : x & (2n - 1)
-  // x % 8 ==  x < 0 ? x | ~(4-1) : x & 3
+  /* This a -signed- mod 8
+   * x % 2n == x < 0 ? x | ~(2n - 1) : x & (2n - 1)
+   * x % 8 ==  x < 0 ? x | ~(4-1) : x & 3 */
 
   _DataI xmm2 = _SetI( 7 );
   _DataI vZero = _SetI( 0 );
