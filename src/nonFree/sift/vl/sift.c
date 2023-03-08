@@ -1824,17 +1824,17 @@ void FastGradientRow(
   _DataF const vHalf     = _Set(0.5f);
 
   for (int i = 0; i < numGroups; ++i, src += GROUP_SIZE, grad += GROUP_SIZE * 2) {
-    _DataF const vGx     = _Load( src + xo );
-    _DataF const vGy     = _Load( src + yo );
-    _DataF const vGx2    = _Load( src - xo );
-    _DataF const vGy2    = _Load( src - yo );
+    _DataF const vGx     = _Load(src + xo);
+    _DataF const vGy     = _Load(src + yo);
+    _DataF const vGx2    = _Load(src - xo);
+    _DataF const vGy2    = _Load(src - yo);
                          
-    _DataF const vDiff   = _Sub( vGx, vGx2 );
-    _DataF const vDiff2  = _Sub( vGy, vGy2 );
+    _DataF const vDiff   = _Sub(vGx, vGx2);
+    _DataF const vDiff2  = _Sub(vGy, vGy2);
 
     /* Calculate the first half of the gradient. */
-    _DataF const vHalfGx = _Mul( vHalf, vDiff );
-    _DataF const vHalfGy = _Mul( vHalf, vDiff2 );
+    _DataF const vHalfGx = _Mul(vHalf, vDiff);
+    _DataF const vHalfGy = _Mul(vHalf, vDiff2);
     _DataF const vNorm   = _Add(_Mul(vHalfGx, vHalfGx), _Mul(vHalfGy, vHalfGy));
     _DataF const vSqrt   = _Sqrt(vNorm);
 
