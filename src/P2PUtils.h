@@ -69,7 +69,7 @@
 #define _SetS _mm_set1_epi16
 #define _Load _mm_loadu_ps
 #define _LoadA _mm_load_ps
-#define _LoadI _mm_load_epi32
+#define _LoadI _mm_load_si128
 #define _vFirst _mm_cvtss_f32
 #define _Store _mm_storeu_ps
 #define _StoreA _mm_store_ps
@@ -170,7 +170,7 @@
 #define _SetS _mm256_set1_epi16
 #define _Load _mm256_loadu_ps
 #define _LoadA _mm256_load_ps
-#define _LoadI _mm256_load_epi32
+#define _LoadI _mm256_load_si256  
 #define _vFirst(a) _mm_cvtss_f32(_mm256_castps256_ps128(a))
 #define _Store _mm256_storeu_ps
 #define _StoreA _mm256_store_ps
