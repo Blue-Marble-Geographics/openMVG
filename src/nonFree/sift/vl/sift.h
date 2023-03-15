@@ -72,6 +72,7 @@ typedef struct _VlSiftFilt
   int octave_height ;   /**< current octave height. */
 
   vl_sift_pix *gaussFilter ;  /**< current Gaussian filter */
+  size_t gaussFilterSize;
   double gaussFilterSigma ;   /**< current Gaussian filter std */
   vl_size gaussFilterWidth ;  /**< current Gaussian filter width */
 

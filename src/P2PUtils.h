@@ -5,12 +5,12 @@
 
 /* Output created .feat files in binary to speed up later steps. */
 /* Improves CF performance by 5% */
-#define BINARY_FEATURES              (0)
+#define BINARY_FEATURES              (1)
 
 /* Potentially faster, but will reorder generated keypoints and make debugging more difficult. */
 #define PARALLEL_KEYPOINT_GENERATION (1)
 
-#define FAST_SIFT_DETECT             (0) /* Needs accuracy testing */
+#define FAST_SIFT_DETECT             (1) /* Default behavior.  No error loss. */
 #define USE_FP_FAST                  (0) /* WIP */
 #define FAST_SIFT_GRADIENT_UPDATE    (1) /* Faster, adds insignificant error to output. */
 #define FAST_SIFT_CALC_KEYPOINTS     (1) /* Faster with ~1% error on 1% of the output */
@@ -404,11 +404,11 @@ static __forceinline _DataF GradCalc2( _DataF y, _DataF x )
   _DataF const vC1      = _Set(0.9675f);
   _DataF const vAbsY    = FastAbs(_Add(y, _Set(1.19209290E-07F)));
   
-  _DataF const vHighBit = _CastFI(_SetI( 0x80000000 ));
+  _DataF const vHighBit = _CastFI(_SetI(0x80000000));
 
   _DataF const vNum     = _Sub(x, _Or(vAbsY, _And(x, vHighBit)));
   _DataF const vDen     = _Add(vAbsY, _Xor(x, _And(x, vHighBit)));
-  _DataF vAngle         = Blend( _Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
+  _DataF vAngle         = Blend(_Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
   _DataF const vR       = _Div(vNum, vDen);
   vAngle                = _Add(
                              vAngle,
