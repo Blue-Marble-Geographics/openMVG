@@ -5,7 +5,7 @@
 
 /* Output created .feat files in binary to speed up later steps. */
 /* Improves CF performance by 5% */
-#define BINARY_FEATURES              (1)
+#define BINARY_FEATURES              (0)
 
 /* Potentially faster, but will reorder generated keypoints and make debugging more difficult. */
 #define PARALLEL_KEYPOINT_GENERATION (1)
