@@ -1847,41 +1847,40 @@ void FastGradientRow(
   int yo
 )
 {
-  // /fp_fast isn't faster.
   vl_sift_pix* __restrict src = *s;
   vl_sift_pix* __restrict grad = *g;
 
   /* Perform the processing GROUP_SIZE elements at a time. */
-  int const count        = end - src;
-  int const numGroups    = count / GROUP_SIZE;
-  _DataF const vHalf     = _Set(0.5f);
+  int const count       = end - src;
+  int const numGroups   = count / GROUP_SIZE;
+  _Data const vHalf     = _Set(0.5f);
 
   for (int i = 0; i < numGroups; ++i, src += GROUP_SIZE, grad += GROUP_SIZE * 2) {
-    _DataF const vGx     = _Load(src + xo); // s
-    _DataF const vGy     = _Load(src + yo);
-    _DataF const vGx2    = _Load(src - xo);
-    _DataF const vGy2    = _Load(src - yo);
+    _Data const vGx     = _Load(src + xo); // s
+    _Data const vGy     = _Load(src + yo);
+    _Data const vGx2    = _Load(src - xo);
+    _Data const vGy2    = _Load(src - yo);
                          
-    _DataF const vDiff   = _Sub(vGx, vGx2);
-    _DataF const vDiff2  = _Sub(vGy, vGy2);
+    _Data const vDiff   = _Sub(vGx, vGx2);
+    _Data const vDiff2  = _Sub(vGy, vGy2);
 
     /* Calculate the first half of the gradient. */
-    _DataF const vHalfGx = _Mul(vHalf, vDiff);
-    _DataF const vHalfGy = _Mul(vHalf, vDiff2);
-    _DataF const vNorm   = _Add(_Mul(vHalfGx, vHalfGx), _Mul(vHalfGy, vHalfGy));
-    _DataF const vSqrt   = _Sqrt(vNorm);
+    _Data const vHalfGx = _Mul(vHalf, vDiff);
+    _Data const vHalfGy = _Mul(vHalf, vDiff2);
+    _Data const vNorm   = _Add(_Mul(vHalfGx, vHalfGx), _Mul(vHalfGy, vHalfGy));
+    _Data const vSqrt   = _Sqrt(vNorm);
 
     /* Now the second. */
-    _DataF const vAtan2 = GradCalc2(vHalfGy, vHalfGx);
+    _Data const vAtan2 = GradCalc2(vHalfGy, vHalfGx);
 
     /* Store s0, s1, s2, s3 and a0, a1, a2, a3 as: */
     _Store( /* s0, a0, s1, a1 */
-        grad,
-        _UnpackLow(vSqrt, vAtan2)
+      grad,
+      _UnpackLow(vSqrt, vAtan2)
     );
     _Store( /* s2, a2, s3, a3 */
-        grad + GROUP_SIZE,
-        _UnpackHigh(vSqrt, vAtan2)
+      grad + GROUP_SIZE,
+      _UnpackHigh(vSqrt, vAtan2)
     );
   }
 
@@ -2417,11 +2416,6 @@ vl_sift_calc_raw_descriptor (VlSiftFilt const *f,
   }
 }
 
-#if FAST_SIFT_CALC_KEYPOINTS && USE_FP_FAST
-#pragma float_control(precise, off) // disable precise semantics
-#pragma fp_contract(on)             // enable contractions
-#endif
-
 /** ------------------------------------------------------------------
  ** @brief Compute the descriptor of a keypoint
  **
@@ -2508,8 +2502,8 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
   memset (descr, 0, sizeof(vl_sift_pix) * NBO*NBP*NBP) ;
 
   /* Center the scale space and the descriptor on the current keypoint.
-  * Note that dpt is pointing to the bin of center (SBP/2,SBP/2,0).
-  */
+   * Note that dpt is pointing to the bin of center (SBP/2,SBP/2,0).
+   */
   pt  = f->grad + xi*xo + yi*yo + (si - f->s_min - 1)*so ;
   dpt = descr + (NBP/2) * binyo + (NBP/2) * binxo ;
 
@@ -2517,23 +2511,28 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
 #define atd(dbinx,dbiny,dbint) *(dpt + (dbint)*binto + (dbiny)*binyo + (dbinx)*binxo)
 
   /*
-  * Process pixels in the intersection of the image rectangle
-  * (1,1)-(M-1,N-1) and the keypoint bounding box.
-  */
+   * Process pixels in the intersection of the image rectangle
+   * (1,1)-(M-1,N-1) and the keypoint bounding box.
+   */
   float const wsigma             = f->windowSize ;
   float const invSigma2          = 1.0 / (2.0 * wsigma * wsigma); // No diff if placed below
-  _DataF const negInvSigmaFactor = _Set(-invSigma2);
+  _Data const negInvSigmaFactor = _Set(-invSigma2);
    vl_sift_pix const angle0f     = (vl_sift_pix) angle0;
-  _DataF const vAngle0           = _Set( angle0 );
+  _Data const vAngle0           = _Set( angle0 );
    double const ntFactor         = NBO / (2 * VL_PI);
-  _DataF const vntFactor         = _Set(ntFactor);
-  _DataF const vHalf             = _Set(0.5f);
-  _DataF const vOne              = _Set(1.f);
-  _DataF const vZero             = _Set(0.f);
+  _Data const vntFactor         = _Set(ntFactor);
+  _Data const vHalf             = _Set(0.5f);
+  _Data const vOne              = _Set(1.f);
+  _Data const vZero             = _Set(0.f);
   _DataI const vIOne             = _SetI(1);
-  _DataF const vBinyo            = _Set(binyo);
-  _DataF const vBinxo            = _Set(binxo);
+  _Data const vBinyo            = _Set(binyo);
+  _Data const vBinxo            = _Set(binxo);
   _DataI const vNBP_2            = _SetI(NBP/2);
+  _DataI const vNBPN_2_1           = _SetI(-NBP/2-1);
+  float const nxInc = ct0 / SBP;
+  float const nyInc = -st0 / SBP;
+  _Data const vNxd = _Set(nxInc*((float) GROUP_SIZE));
+  _Data const vNyd = _Set(nyInc*((float) GROUP_SIZE));
 
   for(dyi =  VL_MAX (- W, 1 - yi    ) ;
        dyi <= VL_MIN (+ W, h - yi - 2) ; ++ dyi) {
@@ -2543,9 +2542,7 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
     vl_sift_pix const dx = xi + dxi - x;
     vl_sift_pix const dy = yi + dyi - y;
     float nx = ( ct0 * dx + st0 * dy) / SBP ;
-    float const nxInc = ct0 / SBP;
     float ny = (-st0 * dx + ct0 * dy) / SBP ;
-    float const nyInc = -st0 / SBP;
 
     int const dxiMin = VL_MIN( +W, w - xi - 2 );
     int const count = dxiMin - dxi + 1;
@@ -2554,202 +2551,225 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
 
     /* Calculate numGroups GROUP_SIZE pixels at a time. */
     int const numGroups = count / GROUP_SIZE;
-    _DataF vNx = _SetNDeltas(nx, nxInc);
-    _DataF vNy = _SetNDeltas(ny, nyInc);
-    _DataF const vNxd = _Set(nxInc*((float) GROUP_SIZE));
-    _DataF const vNyd = _Set(nyInc*((float) GROUP_SIZE));
 
-     for (int i = 0; i != numGroups; ++i, pMA += GROUP_SIZE*xo, dxi += GROUP_SIZE) {
+    _Data vNx_half = _Sub(_SetNDeltas(nx, nxInc), vHalf);
+    _Data vNy_half = _Sub(_SetNDeltas(ny, nyInc), vHalf);
+
+    for (
+       int i = 0; i != numGroups;
+       ++i,
+       pMA += GROUP_SIZE*xo, dxi += GROUP_SIZE, vNx_half = _Add(vNx_half, vNxd), vNy_half = _Add(vNy_half, vNyd)
+    ) {
+      _DataI const vIBinx        = _TruncateIF(Floor(vNx_half));
+      _DataI const vINextBinx        = _AddI(vIBinx, vIOne);
+
+      _DataI vXBounded = _AndI(_CmpGTI(vIBinx, vNBPN_2_1), _CmpLTI(vIBinx, vNBP_2));
+      _DataI vXNextBounded = _AndI(_CmpGTI(vINextBinx, vNBPN_2_1), _CmpLTI(vINextBinx, vNBP_2));
+
+      /* Immediately reject unbounded groups horizontally */
+      if (AllZerosI(_OrI(vXBounded, vXNextBounded)))
+        continue;
+
+      _DataI const vIBiny        = _TruncateIF(Floor(vNy_half));
+      _DataI const vINextBiny        = _AddI(vIBiny, vIOne);
+
+      _DataI vYBounded = _AndI(_CmpGTI(vIBiny, vNBPN_2_1), _CmpLTI(vIBiny, vNBP_2));
+      _DataI vYNextBounded = _AndI(_CmpGTI(vINextBiny, vNBPN_2_1), _CmpLTI(vINextBiny, vNBP_2));
+
+      /* Immediately reject unbounded groups verticaly */
+      if (AllZerosI(_OrI(vYBounded, vYNextBounded)))
+        continue;
+
       /* pMA of the form: m0, a0, m1, a1... */
-      _DataF const vModsAngles1  = _Load(pMA);
-      _DataF const vModsAngles2  = _Load(pMA+GROUP_SIZE);
-      _DataF const vMods         = _Evens(vModsAngles1, vModsAngles2);
-      _DataF const vAngles       = _Odds(vModsAngles1, vModsAngles2);
-      _DataF const vNts          = _Mul( Mod2PILimited(_Sub(vAngles, vAngle0)), vntFactor);
+      _Data const vModsAngles1  = _Load(pMA);
+      _Data const vNx = _Add(vNx_half, vHalf);
+      _Data const vNy = _Add(vNy_half, vHalf);
+      _Data const vBinx         = _ConvertFI(vIBinx);
+      _Data const vBiny         = _ConvertFI(vIBiny);
+      _Data const vModsAngles2  = _Load(pMA+GROUP_SIZE);
+      _Data const vMods         = _Evens(vModsAngles1, vModsAngles2);
+      _Data const vAngles       = _Odds(vModsAngles1, vModsAngles2);
+      _Data const vNts          = _Mul( Mod2PILimited(_Sub(vAngles, vAngle0)), vntFactor);
 
       /* Get the Gaussian weight of the sample. The Gaussian window
-      * has a standard deviation equal to NBP/2. Note that dx and dy
-      * are in the normalized frame, so that -NBP/2 <= dx <=
-      * NBP/2. */
-      _DataF const vNorm         = _Mul(
+       * has a standard deviation equal to NBP/2. Note that dx and dy
+       * are in the normalized frame, so that -NBP/2 <= dx <=
+       * NBP/2. */
+      _Data const vNorm         = _Mul(
                                       _Add( _Mul(vNx, vNx),_Mul(vNy, vNy) ),
                                       negInvSigmaFactor
                                    );
-      _DataF const vWinMod       = _Mul(FastExp(vNorm), vMods) ;
+      _Data const vWinMod       = _Mul(FastExp(vNorm), vMods) ;
 
-      _DataI const vIBinx        = _TruncateIF(Floor( _Sub(vNx, vHalf)));
-      _DataF const vBinx         = _ConvertFI(vIBinx);
-      _DataI const vIBinxOff     = _AddI(vIBinx, vNBP_2);
-      _DataI const vIBiny        = _TruncateIF(Floor( _Sub(vNy, vHalf)));
-      _DataF const vBiny         = _ConvertFI(vIBiny);
-      _DataI const vIBinyOff     = _AddI(vIBiny, vNBP_2);
-      _DataI const vIBint        = _TruncateIF(vNts);
-      _DataF const vBint         = _ConvertFI(vIBint);
-      _DataF const vRbinx        = _Sub(vNx, _Add(vBinx, vHalf));
-      _DataF const vRbiny        = _Sub(vNy, _Add(vBiny, vHalf));
-      _DataF const vRbint        = _Sub(vNts, vBint);
-      _DataF const vRbint1       = _Mul(vWinMod, FastAbs(_Sub(vOne, vRbint)));
-      _DataF const vRbint2       = _Mul(vWinMod, FastAbs(_Sub(vZero, vRbint)));
-      _DataF const vRbint3       = FastAbs(_Sub(vOne, vRbiny));
-      _DataF const vRbint4       = FastAbs(_Sub(vZero, vRbiny));
-      _DataF const vRbint5       = FastAbs(_Sub(vOne, vRbinx));
-      _DataF const vRbint6       = FastAbs(_Sub(vZero, vRbinx));
-      _DataF const vRbint53      = _Mul(vRbint5, vRbint3);
-      _DataF const vRbint54      = _Mul(vRbint5, vRbint4);
-      _DataF const vRbint63      = _Mul(vRbint6, vRbint3);
-      _DataF const vRbint64      = _Mul(vRbint6, vRbint4);
+      _DataI const vIBint       = _TruncateIF(vNts);
+      _Data const vBint         = _ConvertFI(vIBint); // All cases
+      _Data const vRbinx        = _Sub(vNx, _Add(vBinx, vHalf)); // xbounded and (yBounded or yNextBounded)
+      _Data const vRbiny        = _Sub(vNy, _Add(vBiny, vHalf));  // yBounded or yNextBounded
+      _Data const vRbint        = _Sub(vNts, vBint); // All cases
 
-      _DataF const v531          = _Mul(vRbint53, vRbint1);
-      _DataF const v532          = _Mul(vRbint53, vRbint2);
-      _DataF const v541          = _Mul(vRbint54, vRbint1);
-      _DataF const v542          = _Mul(vRbint54, vRbint2);
+      _Data const vRbint1       = _Mul(vWinMod, FastAbs(_Sub(vOne, vRbint))); // All cases
+      _Data const vRbint2       = _Mul(vWinMod, FastAbs(_Sub(vZero, vRbint))); // All cases
 
-      _DataF const v631          = _Mul(vRbint63, vRbint1);
-      _DataF const v632          = _Mul(vRbint63, vRbint2);
-      _DataF const v641          = _Mul(vRbint64, vRbint1);
-      _DataF const v642          = _Mul(vRbint64, vRbint2);
-      
+      _Data const vRbint3       = FastAbs(_Sub(vOne, vRbiny));  // yBounded
+      _Data const vRbint4       = FastAbs(_Sub(vZero, vRbiny)); // yNextBounded
+      _Data const vRbint5       = FastAbs(_Sub(vOne, vRbinx));  // xBounded
+      _Data const vRbint6       = FastAbs(_Sub(vZero, vRbinx)); // xNextBounded
+
+      _Data const vRbint53      = _Mul(vRbint5, vRbint3);       // xBounded and yBounded
+      _Data const v531          = _Mul(vRbint53, vRbint1);
+      _Data const v532          = _Mul(vRbint53, vRbint2);
+
+      _Data const vRbint54      = _Mul(vRbint5, vRbint4);       // xBounded and yNextBounded
+      _Data const v541          = _Mul(vRbint54, vRbint1);
+      _Data const v542          = _Mul(vRbint54, vRbint2);
+
+      _Data const vRbint63      = _Mul(vRbint6, vRbint3);       // xNextBounded and yBounded
+      _Data const v631          = _Mul(vRbint63, vRbint1);
+      _Data const v632          = _Mul(vRbint63, vRbint2);
+
+      _Data const vRbint64      = _Mul(vRbint6, vRbint4);       // nNextBounded and yNextBounded
+      _Data const v641          = _Mul(vRbint64, vRbint1);
+      _Data const v642          = _Mul(vRbint64, vRbint2);
+
       /* ( bint % NBO ) * binto (binto always 1) */
       _DataI const vRowColOffset = _AddI(
                                       _ShiftLI(vIBiny, 5), /* row offset binyo == 32 */
-                                      _ShiftLI(vIBinx, 3) /* col offset binxo == 8 */
+                                      _ShiftLI(vIBinx, 3)  /* col offset binxo == 8 */
                                     );
+
       _DataI const vDepthOffset  = _AddI(
                                       FastMod8(vIBint),
                                       vRowColOffset
                                    );
-            /* ( (bint+1) % NBO ) * binto; (binto always 1) */
+      /* ( (bint+1) % NBO ) * binto; (binto always 1) */
       _DataI const vDepthOffset2 = _AddI(
                                       FastMod8(_AddI(vIBint, vIOne)),
                                       vRowColOffset
-                                    );
+                                     );
+
       for (int j = 0; j != GROUP_SIZE; ++j) {
         /* The sample will be distributed in 8 adjacent bins.
-        We start from the ``lower-left'' bin. */
-        int const xBound         = _AsArrayI(vIBinxOff,j);
-        int const yBound         = _AsArrayI(vIBinyOff,j);
+         * We start from the ``lower-left'' bin. */
+        int const xBounded       = _AsArrayI(vXBounded, j);
+        int const xNextBounded   = _AsArrayI(vXNextBounded, j);
+        int const yBounded       = _AsArrayI(vYBounded, j);
+        int const yNextBounded   = _AsArrayI(vYNextBounded, j);
+      
         float* __restrict p1
                                  = dpt + _AsArrayI(vDepthOffset,j);
         float* __restrict p2
                                  = dpt + _AsArrayI(vDepthOffset2,j);
         float* __restrict p3     = p1 + 32; /* binyo == 32 */
         float* __restrict p4     = p2 + 32;
-
+      
         /* Distribute the current sample into the 8 adjacent bins*/
-        int const xBounded       = ((unsigned) xBound) < NBP;
-        int const xNextBounded   = ((unsigned) (xBound + 1)) < NBP;
-        int const yBounded       = ((unsigned) yBound) < NBP;
-        int const yNextBounded   = ((unsigned) (yBound + 1) ) < NBP;
-                   
+      
         /* Not faster to avoid the branches. */
         if (xBounded) {
             if (yBounded) {
-                *p1 += _AsArrayF(v531,j); // xBound < NBP && yBound < NBP
-                *p2 += _AsArrayF(v532,j); // xBound < NBP && yBound < NBP
+              *p1 += _AsArrayF(v531,j); /* xBound < NBP && yBound < NBP */
+              *p2 += _AsArrayF(v532,j); /* xBound < NBP && yBound < NBP */
             }
 
             if (yNextBounded) {
-                *p3 += _AsArrayF(v541,j); // xBound < NBP && (yBound+1) < NBP
-                *p4 += _AsArrayF(v542,j); // xBound < NBP && (yBound+1) < NBP
+              *p3 += _AsArrayF(v541,j); /* xBound < NBP && (yBound+1) < NBP */
+              *p4 += _AsArrayF(v542,j); /* xBound < NBP && (yBound+1) < NBP */
             }
-        }
-
+          }
+      
         if (xNextBounded) {
-            p1 += binxo;
-            p2 += binxo;
+         p1 += binxo;
+         p2 += binxo;
 
-            if (yBounded) {
-                *p1 += _AsArrayF(v631,j) ; // (xBound+1) < NBP && yBound < NBP
-                *p2 += _AsArrayF(v632,j) ; // (xBound+1) < NBP && yBound < NBP
-            }
+         if (yBounded) {
+             *p1 += _AsArrayF(v631,j) ; /* (xBound+1) < NBP && yBound < NBP */
+             *p2 += _AsArrayF(v632,j) ; /* (xBound+1) < NBP && yBound < NBP */
+         }
 
-            if (yNextBounded) {
-                p3 += binxo;
-                p4 += binxo;
-                *p3 += _AsArrayF(v641,j) ; // (xBound+1) < NBP && (yBound+1) < NBP
-                *p4 += _AsArrayF(v642,j) ; // (xBound+1) < NBP && (yBound+1) < NBP
-            }
-        }
+         if (yNextBounded) {
+           p3 += binxo;
+           p4 += binxo;
+           *p3 += _AsArrayF(v641,j) ; /* (xBound+1) < NBP && (yBound+1) < NBP */
+           *p4 += _AsArrayF(v642,j) ; /* (xBound+1) < NBP && (yBound+1) < NBP */
+         }
+       }
       }
-
-      vNx = _Add(vNx, vNxd);
-      vNy = _Add(vNy, vNyd);
     }
 
-    nx = _AsArrayF(vNx, 0);
-    ny = _AsArrayF(vNy, 0);
+    nx = _AsArrayF(vNx_half, 0) + 0.5f;
+    ny = _AsArrayF(vNy_half, 0) + 0.5f;
 
     /* Perform the processing on the remaining elements. */
     for( ; dxi <= dxiMin ;++dxi, pMA += xo, nx += nxInc, ny += nyInc) {
-        /* retrieve */
-        vl_sift_pix const mod   = pMA[0] ;
-        vl_sift_pix const angle = pMA[1] ;
-        vl_sift_pix const theta = Mod2PILimitedS(angle - angle0) ;
+      /* retrieve */
+      vl_sift_pix const mod   = pMA[0] ;
+      vl_sift_pix const angle = pMA[1] ;
+      vl_sift_pix const theta = Mod2PILimitedS(angle - angle0) ;
 
-        /* get the displacement normalized w.r.t. the keypoint
-        orientation and extension */
-        vl_sift_pix const nt = theta * ntFactor ;
+      /* get the displacement normalized w.r.t. the keypoint
+      orientation and extension */
+      vl_sift_pix const nt = theta * ntFactor ;
 
-        /* Get the Gaussian weight of the sample. The Gaussian window
-        * has a standard deviation equal to NBP/2. Note that dx and dy
-        * are in the normalized frame, so that -NBP/2 <= dx <=
-        * NBP/2. */
-        vl_sift_pix const win =  fastExp3S( -( nx * nx + ny * ny ) * invSigma2 );
+      /* Get the Gaussian weight of the sample. The Gaussian window
+       * has a standard deviation equal to NBP/2. Note that dx and dy
+       * are in the normalized frame, so that -NBP/2 <= dx <=
+       * NBP/2. */
+      vl_sift_pix const win =  fastExp3S( -( nx * nx + ny * ny ) * invSigma2 );
 
-        vl_sift_pix const winMod = win * mod;
+      vl_sift_pix const winMod = win * mod;
 
-        /* The sample will be distributed in 8 adjacent bins.
-        We start from the ``lower-left'' bin. */
-        int         binx = (int)vl_floor_f (nx - 0.5f) ;
-        int         biny = (int)vl_floor_f (ny - 0.5f) ;
-        int         bint = (int)vl_floor_f (nt) ;
-        vl_sift_pix rbinx = nx - (binx + 0.5f) ;
-        vl_sift_pix rbiny = ny - (biny + 0.5f) ;
-        vl_sift_pix rbint = nt - bint ;
-        int         dbinx ;
-        int         dbiny ;
-        int         dbint ;
-        vl_sift_pix const rbintFactor1 = vl_abs_f( 1.f - rbint );
-        vl_sift_pix const rbintFactor2 = vl_abs_f( -rbint );
-        vl_sift_pix* dpt_bint_binto = dpt + ( bint % NBO ) * binto;
-        vl_sift_pix* dpt_bint_binto2 = dpt + ( (bint+1) % NBO ) * binto;
-        vl_sift_pix const rbint1 = winMod * rbintFactor1;
-        vl_sift_pix const rbint2 = winMod * rbintFactor2;
+      /* The sample will be distributed in 8 adjacent bins.
+      We start from the ``lower-left'' bin. */
+      int         binx = (int)vl_floor_f (nx - 0.5f) ;
+      int         biny = (int)vl_floor_f (ny - 0.5f) ;
+      int         bint = (int)vl_floor_f (nt) ;
+      vl_sift_pix rbinx = nx - (binx + 0.5f) ;
+      vl_sift_pix rbiny = ny - (biny + 0.5f) ;
+      vl_sift_pix rbint = nt - bint ;
+      int         dbinx ;
+      int         dbiny ;
+      int         dbint ;
+      vl_sift_pix const rbintFactor1 = vl_abs_f( 1.f - rbint );
+      vl_sift_pix const rbintFactor2 = vl_abs_f( -rbint );
+      vl_sift_pix* dpt_bint_binto = dpt + ( bint % NBO ) * binto;
+      vl_sift_pix* dpt_bint_binto2 = dpt + ( (bint+1) % NBO ) * binto;
+      vl_sift_pix const rbint1 = winMod * rbintFactor1;
+      vl_sift_pix const rbint2 = winMod * rbintFactor2;
 
-        /* Distribute the current sample into the 8 adjacent bins*/
-        int xBound = binx + 0 + NBP / 2;
-        int binx_dbinx_binxo = ( binx + 0 ) * binxo;
-        for(dbinx = 0 ; dbinx < 2 ; ++dbinx, ++xBound, binx_dbinx_binxo += binxo) {
-            if (( unsigned ) xBound < NBP) {
-                int yBound = biny + 0 + NBP / 2;
-                if (( unsigned ) yBound < NBP) {
-                    int addressXY = ( biny + 0 ) * binyo + binx_dbinx_binxo;
-                    float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
-                    vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( 1 - rbiny );
+      /* Distribute the current sample into the 8 adjacent bins*/
+      int xBound = binx + 0 + NBP / 2;
+      int binx_dbinx_binxo = ( binx + 0 ) * binxo;
+      for(dbinx = 0 ; dbinx < 2 ; ++dbinx, ++xBound, binx_dbinx_binxo += binxo) {
+        if (( unsigned ) xBound < NBP) {
+          int yBound = biny + 0 + NBP / 2;
+          if (( unsigned ) yBound < NBP) {
+            int addressXY = ( biny + 0 ) * binyo + binx_dbinx_binxo;
+            float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
+            vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( 1 - rbiny );
 
-                    dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
-                    dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
+            dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+            dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
 
-                    ++yBound;
-                    if (( unsigned ) ( yBound ) < NBP) {
-                        addressXY += binyo;
-                        vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
+            ++yBound;
+            if (( unsigned ) ( yBound ) < NBP) {
+              addressXY += binyo;
+              vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
 
-                        dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
-                        dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
-                    }
-                } else {
-                    if (( unsigned ) ( yBound + 1 ) < NBP) {
-                        int const addressXY = ( biny + 1 ) * binyo + binx_dbinx_binxo;
-                        float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
-                        vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
-
-                        dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
-                        dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
-                    }
-                }
+              dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+              dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
             }
+          } else {
+            if (( unsigned ) ( yBound + 1 ) < NBP) {
+              int const addressXY = ( biny + 1 ) * binyo + binx_dbinx_binxo;
+              float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
+              vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
+
+              dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+              dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
+            }
+          }
         }
+      }
     }
   }
 
@@ -2923,11 +2943,6 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
   }
 #endif
 }
-
-#if FAST_SIFT_CALC_KEYPOINTS && USE_FP_FAST
-#pragma float_control(precise, on)  // enable precise semantics
-#pragma fp_contract(off)             // enable contractions
-#endif
 
 /** ------------------------------------------------------------------
  ** @brief Initialize a keypoint from its position and scale
