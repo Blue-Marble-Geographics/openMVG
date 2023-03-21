@@ -72,7 +72,7 @@ void Match
     cascade_hasher.Init(dimension);
   }
 
-  std::map<IndexT, HashedDescriptions> hashed_base_;
+  std::map<IndexT, std::unique_ptr<HashedDescriptions>> hashed_base_;
 
   // Compute the zero mean descriptor that will be used for hashing (one for all the image regions)
   Eigen::VectorXf zero_mean_descriptor;
@@ -102,6 +102,10 @@ void Match
   }
 
   // Index the input regions
+  using RType = std::pair<IndexT,std::unique_ptr<HashedDescriptions>>;
+  std::unique_ptr<RType[]> results(new RType[used_index.size()]);
+  RType* const pResults = results.get();
+
 #ifdef OPENMVG_USE_OPENMP
   #pragma omp parallel for schedule(dynamic)
 #endif
@@ -116,13 +120,12 @@ void Match
     const size_t dimension = regionsI->DescriptorLength();
 
     Eigen::Map<BaseMat> mat_I( (ScalarT*)tabI, regionsI->RegionCount(), dimension);
-#ifdef OPENMVG_USE_OPENMP
-    #pragma omp critical
-#endif
-    {
-      hashed_base_[I] =
-        std::move(cascade_hasher.CreateHashedDescriptions(mat_I, zero_mean_descriptor));
-    }
+    pResults[i] = {I, std::move(cascade_hasher.CreateHashedDescriptions(mat_I, zero_mean_descriptor))};
+  }
+
+  for (int i = 0, cnt = used_index.size(); i != cnt; ++i) {
+      auto& r = results[i];
+      hashed_base_[r.first] = std::move(r.second);
   }
 
   // Perform matching between all the pairs
@@ -174,8 +177,8 @@ void Match
 
       // Match the query descriptors to the database
       cascade_hasher.Match_HashedDescriptions<BaseMat, ResultType>(
-        hashed_base_[J], mat_J,
-        hashed_base_[I], mat_I,
+        *hashed_base_[J], mat_J,
+        *hashed_base_[I], mat_I,
         &pvec_indices, &pvec_distances);
 
       std::vector<int> vec_nn_ratio_idx;
