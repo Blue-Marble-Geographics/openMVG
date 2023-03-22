@@ -129,8 +129,17 @@ void Match
   }
 
   // Perform matching between all the pairs
-  for (const auto & pair_it : map_Pairs)
+  int cnt = map_Pairs.size();
+
+#ifdef OPENMVG_USE_OPENMP
+  #pragma omp parallel for schedule(dynamic)
+#endif
+  for (int i = 0; i < cnt; ++i)
   {
+    auto it = std::begin( map_Pairs );
+    std::advance( it, i );
+    const auto& pair_it = *it;
+
     if (my_progress_bar->hasBeenCanceled())
       break;
     const IndexT I = pair_it.first;
@@ -149,9 +158,6 @@ void Match
     const size_t dimension = regionsI->DescriptorLength();
     Eigen::Map<BaseMat> mat_I( (ScalarT*)tabI, regionsI->RegionCount(), dimension);
 
-#ifdef OPENMVG_USE_OPENMP
-    #pragma omp parallel for schedule(dynamic)
-#endif
     for (int j = 0; j < (int)indexToCompare.size(); ++j)
     {
       if (my_progress_bar->hasBeenCanceled())
