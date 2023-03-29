@@ -65,11 +65,13 @@
 #define _Odds(a,b) _mm_shuffle_ps((a),(b), _MM_SHUFFLE(3, 1, 3, 1))
 #define _UnpackLow(a,b) _mm_unpacklo_ps((a), (b))
 #define _UnpackHigh(a,b) _mm_unpackhi_ps((a), (b))
+#define _UnpackHighI(a,b) _mm_unpackhi_epi64((a), (b))
+#define _Low64I _mm_cvtsi128_si64
 #define _SetI _mm_set1_epi32
 #define _SetS _mm_set1_epi16
 #define _Load _mm_loadu_ps
 #define _LoadA _mm_load_ps
-#define _LoadI _mm_load_si128
+#define _LoadI _mm_loadu_si128
 #define _vFirst _mm_cvtss_f32
 #define _Store _mm_storeu_ps
 #define _StoreA _mm_store_ps
@@ -78,6 +80,7 @@
 #define _Or _mm_or_ps
 #define _OrI _mm_or_si128
 #define _Xor _mm_xor_ps
+#define _XorI _mm_xor_si128
 #define _ShiftLI _mm_slli_epi32
 #define _ShiftRI _mm_srai_epi32
 #define _ShiftRU _mm_srli_epi32
@@ -100,6 +103,10 @@
 #define _Floor _mm_floor_ps
 #endif
 
+#ifdef __SSE4_2__
+#include <nmmintrin.h>
+#endif
+
 #ifdef __AVX2__
 #include <immintrin.h>
 #undef ALIGN_SIZE
@@ -115,12 +122,18 @@
 #undef _CmpGT
 #undef _CmpLT
 #undef _CmpEQI
-#undef _CmpLT
-#undef _CmpGEI
+#undef _CmpLTI
+#undef _CmpGTI
 #undef _Set
 #undef _SetN
 #undef _SetNDeltas
 #undef _SetNMemory
+#undef _Evens
+#undef _Odds
+#undef _UnpackLow
+#undef _UnpackHigh
+#undef _UnpackHighI
+#undef _Low64I
 #undef _SetI
 #undef _SetS
 #undef _Load
@@ -134,6 +147,7 @@
 #undef _Or
 #undef _OrI
 #undef _Xor
+#undef _XorI
 #undef _ShiftLI
 #undef _ShiftRI
 #undef _ShiftRU
@@ -170,12 +184,18 @@
 #define _SetN(a,b,c,d,e,f,g,h) _mm256_set_ps((h),(g),(f),(e),(d),(c),(b),(a))
 #define _SetNDeltas(a,b) _SetN((a), ((a)+(b)), (a)+(b)*2.f, (a)+(b)*3.f, (a)+(b)*4.f, (a)+(b)*5.f, (a)+(b)*6.f, (a)+(b)*7.f)
 #define _SetNMemory(a,b) _SetN((a)[0], (a)[b], (a)[2*(b)], (a)[3*(b)], (a)[4*(b)], (a)[5*(b)], (a)[6*(b)], (a)[7*(b)])
+#define _Evens(a,b) _mm256_shuffle_ps((a),(b), _MM_SHUFFLE(2, 0, 2, 0))
+#define _Odds(a,b) _mm256_shuffle_ps((a),(b), _MM_SHUFFLE(3, 1, 3, 1))
+#define _UnpackLow(a,b) _mm256_unpacklo_ps((a), (b))
+#define _UnpackHigh(a,b) _mm256_unpackhi_ps((a), (b))
+#define _UnpackHighI(a,b) _mm256_unpackhi_epi64((a), (b))
+#define _Low64I(a) _mm256_cvtsi128_si64((a))
 #define _SetI _mm256_set1_epi32
 #define _SetS _mm256_set1_epi16
 #define _Load _mm256_loadu_ps
 #define _LoadA _mm256_load_ps
-#define _LoadI _mm256_load_si256  
-#define _vFirst(a) _mm_cvtss_f32(_mm256_castps256_ps128(a))
+#define _LoadI _mm256_loadu_si256
+#define _vFirst(a) _mm256_cvtss_f32((a))
 #define _Store _mm256_storeu_ps
 #define _StoreA _mm256_store_ps
 #define _And _mm256_and_ps
@@ -183,6 +203,7 @@
 #define _Or _mm256_or_ps
 #define _OrI _mm256_or_si256
 #define _Xor _mm256_xor_ps
+#define _XorI _mm_xor_si256
 /* _Shifts are AVX2 only */
 #define _ShiftLI _mm256_slli_epi32
 #define _ShiftRI _mm256_srai_epi32
@@ -493,6 +514,18 @@ static __forceinline _DataI FastMod8(_DataI x)
   psubd   xmm0, xmm1
   movups  XMMWORD PTR [rdi], xmm0
   */
+}
+
+/* https://github.com/kimwalisch/libpopcnt/blob/master/libpopcnt.h */
+static __forceinline unsigned int PopCnt64(unsigned long long x)
+{
+#ifdef __SSE4_2__
+  return _mm_popcnt_64(x);
+#else
+  return __popcnt((unsigned long) x) + 
+    __popcnt((unsigned long)(x >> 32));
+#endif
+
 }
 
 #endif /* P2PUTILS_H */
