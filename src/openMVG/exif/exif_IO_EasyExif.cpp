@@ -12,6 +12,11 @@
 #include <limits>
 #include <sstream>
 #include <vector>
+#if BMG_EXTENSIONS
+# include <map>
+# include <algorithm> 
+# include <functional> 
+#endif
 
 #include "third_party/easyexif/exif.h"
 
@@ -44,6 +49,10 @@ class Exif_IO_EasyExif::EXIFInfoImpl {
   easyexif::EXIFInfo exif_info;
  public:
   easyexif::EXIFInfo& get() {return exif_info;}
+#if BMG_EXTENSIONS
+public:
+  std::map<std::string, std::string> dji_extra;
+#endif
 };
 
 Exif_IO_EasyExif::Exif_IO_EasyExif():
@@ -79,7 +88,42 @@ bool Exif_IO_EasyExif::open( const std::string & sFileName )
   fclose( fp );
 
   // Parse EXIF
-  bHaveExifInfo_ = ( (*pimpl_).get().parseFrom( &buf[0], fsize ) == PARSE_EXIF_SUCCESS );
+  bHaveExifInfo_ = ((*pimpl_).get().parseFrom(&buf[0], fsize) == PARSE_EXIF_SUCCESS);
+
+#if BMG_EXTENSIONS
+  // Credits to https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring
+  auto rtrim = [](std::string& s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+      return !std::isspace(ch);
+      }).base(), s.end());
+  };
+
+  auto ltrim = [](std::string& s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+      return !std::isspace(ch);
+      }));
+  };
+
+  if (bHaveExifInfo_)
+  {
+    auto sFileNameExiftool = sFileName + ".exiftool";
+    std::ifstream fp(sFileNameExiftool);
+    std::string s;
+    while (std::getline(fp, s))
+    {
+      auto pos = s.find(':');
+      if (pos != std::string::npos) {
+        std::string key = s.substr(0, pos);
+        rtrim(key);
+        std::string value = s.substr(pos + 1);
+        ltrim(value);
+        rtrim(value);
+
+        pimpl_->dji_extra.insert({ key, value });
+      }
+    }
+  }
+#endif
 
   return bHaveExifInfo_;
 }
@@ -192,6 +236,12 @@ std::string Exif_IO_EasyExif::allExifData() const
       << "Lens make : " <<  (*pimpl_).get().LensInfo.Make << "\n"
       << "Lens model : " << (*pimpl_).get().LensInfo.Model << "\n"
       << "Image Unique ID    : " << (*pimpl_).get().ImageUniqueID << "\n";
+#if BMG_EXTENSIONS
+  for (auto const& p : pimpl_->dji_extra)
+  {
+    os << p.first << " : " << p.second << "\n";
+  }
+#endif
   return os.str();
 }
 
@@ -224,6 +274,142 @@ bool Exif_IO_EasyExif::GPSAltitude(double * altitude) const
   }
   return false;
 }
+
+#if BMG_EXTENSIONS
+
+bool Exif_IO_EasyExif::DJIPitch (double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Pitch" );
+  if ( pos != pimpl_->dji_extra.end())
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJICameraPitch (double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Camera Pitch" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIGimbalPitchDegree (double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Gimbal Pitch Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIFlightPitchDegree(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Flight Pitch Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIRoll(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Roll" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJICameraRoll(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Camera Roll" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIGimbalRollDegree(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Gimbal Roll Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIFlightRollDegree (double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Flight Roll Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIYaw(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Yaw" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJICameraYaw(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Camera Yaw" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIGimbalYawDegree(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Gimbal Yaw Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+bool Exif_IO_EasyExif::DJIFlightYawDegree(double* val) const
+{
+  auto pos = pimpl_->dji_extra.find( "Flight Yaw Degree" );
+  if ( pos != pimpl_->dji_extra.end() )
+  {
+    *val = stod( pos->second );
+    return true;
+  }
+  return false;
+}
+
+#endif /* BMG_EXTENSIONS */
 
 } // namespace exif
 } // namespace openMVG

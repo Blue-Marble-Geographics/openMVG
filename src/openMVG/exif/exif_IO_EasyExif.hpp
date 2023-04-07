@@ -146,6 +146,27 @@ class Exif_IO_EasyExif : public Exif_IO
     */
     bool GPSAltitude(double * altitude) const  override;
 
+#if BMG_EXTENSIONS
+    /*
+    *  Access to DJI specific tags
+    */
+    bool DJIPitch( double* val ) const  override;
+    bool DJICameraPitch( double* val ) const  override;
+    bool DJIGimbalPitchDegree( double* val ) const  override;
+    bool DJIFlightPitchDegree( double* val ) const  override;
+
+    bool DJIRoll( double* val ) const  override;
+    bool DJICameraRoll( double* val ) const  override;
+    bool DJIGimbalRollDegree( double* val ) const  override;
+    bool DJIFlightRollDegree( double* val ) const  override;
+
+    bool DJIYaw( double* val ) const  override;
+    bool DJICameraYaw( double* val ) const  override;
+    bool DJIGimbalYawDegree( double* val ) const  override;
+    bool DJIFlightYawDegree( double* val ) const  override;
+
+#endif
+
 
   private:
 

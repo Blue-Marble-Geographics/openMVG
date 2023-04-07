@@ -47,6 +47,11 @@ option(OpenMVG_USE_OPENCV "Build or not opencv+openMVG samples programs" OFF)
 # ==============================================================================
 option(OpenMVG_USE_OCVSIFT "Add or not OpenCV SIFT in available features" OFF)
 
+# Experimental Blue Marble Geograpichs extensions
+# ==============================================================================
+option(OpenMVG_BMG_EXTENSIONS "Enable Blue Marble Geograpichs extensions" OFF)
+option(OpenMVG_DISABLE_WARNINGS "Supress some compile time warnings" OFF)
+
 # ==============================================================================
 # Since the LiGT algorithm has a patent protection.
 # See header files in openMVG/multiview/LiGT for more informations.
@@ -90,6 +95,10 @@ MACRO(register_definitions DEF)
   list(APPEND OpenMVG_DEFINITIONS ${STRIPPED_DEF})
 ENDMACRO()
 
+if (OpenMVG_BMG_EXTENSIONS)
+    register_definitions(-DBMG_EXTENSIONS=1)
+endif()
+
 # Set shared or static mode
 if (OpenMVG_BUILD_SHARED)
   set(BUILD_SHARED_LIBS ON)
@@ -129,6 +138,12 @@ if (UNIX AND NOT OpenMVG_BUILD_COVERAGE)
   set(CMAKE_C_FLAGS_RELEASE "-O3")
   set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 endif ()
+
+if (OpenMVG_DISABLE_WARNINGS)
+  if(MSVC)
+	add_compile_options( /wd4267 /wd4244 /wd4305 /wd4996 /wd4101 /wd4146 /wd4018 /wd4267)
+  endif()
+endif(OpenMVG_DISABLE_WARNINGS)
 
 # ==============================================================================
 # Check C++11 support
@@ -520,6 +535,8 @@ message("** Enable OpenMP parallelization: " ${OpenMVG_USE_OPENMP})
 message("** Build OpenCV+OpenMVG samples programs: " ${OpenMVG_USE_OPENCV})
 message("** Use OpenCV SIFT features: " ${OpenMVG_USE_OCVSIFT})
 message("** Use LiGT for global translation estimation: " ${OpenMVG_USE_LIGT})
+message("** Use Experimental BMG Extensions: " ${OpenMVG_BMG_EXTENSIONS})
+message("** OpenMVG_DISABLE_WARNINGS: " ${OpenMVG_DISABLE_WARNINGS})
 
 message("\n")
 
