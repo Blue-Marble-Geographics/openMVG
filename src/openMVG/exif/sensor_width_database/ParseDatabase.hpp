@@ -61,7 +61,7 @@ bool getInfo
   const std::string & sModel,
   const std::vector<Datasheet>& vec_database,
   Datasheet& datasheetContent,
-  bool bDoExtendedLookup = false // if no exact match on camera name, should we look for unique sub-match?
+  bool bDoExtendedLookup // if no exact match on camera name, should we look for unique sub-match?
 )
 {
   bool existInDatabase = false;
