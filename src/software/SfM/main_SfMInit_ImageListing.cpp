@@ -254,7 +254,7 @@ bool readLandmarksTextFile
 				}
 
 				// Compare the strings
-				if (0 == stricmp(view_base_filename.c_str(), image_name.c_str()))
+				if (0 == strcasecmp(view_base_filename.c_str(), image_name.c_str()))
 				{
 					view_id = view.first;
 					view_id_valid = true;
