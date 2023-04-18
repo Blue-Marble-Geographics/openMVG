@@ -28,6 +28,10 @@
 #include <string>
 #include <utility>
 
+#ifdef _MSC_VER
+#define strcasecmp(x, y) _stricmp(x, y)
+#endif
+
 using namespace openMVG;
 using namespace openMVG::cameras;
 using namespace openMVG::exif;
