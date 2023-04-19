@@ -28,6 +28,10 @@
 #include <string>
 #include <utility>
 
+#ifdef _MSC_VER
+#define strcasecmp(x, y) _stricmp(x, y)
+#endif
+
 using namespace openMVG;
 using namespace openMVG::cameras;
 using namespace openMVG::exif;
@@ -267,7 +271,7 @@ bool readLandmarksTextFile
 				}
 
 				// Compare the strings
-				if (0 == stricmp(view_base_filename.c_str(), image_name.c_str()))
+				if (0 == strcasecmp(view_base_filename.c_str(), image_name.c_str()))
 				{
 					view_id = view.first;
 					view_id_valid = true;
@@ -382,7 +386,7 @@ int main(int argc, char **argv)
       << "[-m|--gps_to_xyz_method] XYZ Coordinate system:\n"
       << "\t 0: ECEF (default)\n"
       << "\t 1: UTM\n"
-      << "[-x|--exif_extended_lookup] Allow partial map on camera model name in EXIF information"
+      << "[-x|--exif_extended_lookup] Allow partial map on camera model name in EXIF information\n"
 	  << "[-l|--landmarksFilename] Landmarks Filename\n"
       << "[-p|--projectFilename] Project Filename to use if adding landmarks\n";
 

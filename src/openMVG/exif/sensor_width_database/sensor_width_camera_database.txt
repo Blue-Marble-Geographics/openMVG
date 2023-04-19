@@ -6292,7 +6292,6 @@ Sony ILCE-3500;23.5
 Sony ILCE 5000;23.2
 Sony ILCE 5100;23.5
 Sony ILCE 6000;23.5
-Sony ILCE-3500;23.5
 Sony ILCE-6000;23.5
 Sony ILCE-6000L;23.5
 Sony ILCE-6000Y;23.5
@@ -6836,6 +6835,7 @@ YUNEEC Breeze 4K;4.7
 Zaydo Pulse;4.69
 Zeaplus M7;4.69
 Zeiss ZX1;36
+ZenmuseP1;35.9 // https://www.dji.com/zenmuse-p1/specs
 Zopo 3X;4.69
 Zopo Color C ZP330;3.67
 Zopo Color C1;3.67
