@@ -369,7 +369,7 @@ int main(int argc, char **argv)
       << "[-m|--gps_to_xyz_method] XYZ Coordinate system:\n"
       << "\t 0: ECEF (default)\n"
       << "\t 1: UTM\n"
-      << "[-x|--exif_extended_lookup] Allow partial map on camera model name in EXIF information"
+      << "[-x|--exif_extended_lookup] Allow partial map on camera model name in EXIF information\n"
 	  << "[-l|--landmarksFilename] Landmarks Filename\n"
       << "[-p|--projectFilename] Project Filename to use if adding landmarks\n";
 
