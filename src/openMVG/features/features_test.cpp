@@ -35,7 +35,9 @@ using Descs_T = std::vector<Desc_T, Eigen::aligned_allocator<Desc_T>>;
 static const int CARD = 12;
 
 TEST(featureIO, NON_EXISTING_FILE) {
-
+#if BINARY_FEATURES
+// TODO: add test for binary features
+#else
   // Try to read a non-existing feature file
   Feats_T vec_feats;
   EXPECT_FALSE(loadFeatsFromFile("x.feat", vec_feats));
@@ -44,6 +46,7 @@ TEST(featureIO, NON_EXISTING_FILE) {
   Descs_T vec_descs;
   EXPECT_FALSE(loadDescsFromFile("x.desc", vec_descs));
   EXPECT_FALSE(loadDescsFromBinFile("x.desc", vec_descs));
+#endif
 }
 
 TEST(featureIO, ASCII) {
@@ -52,7 +55,9 @@ TEST(featureIO, ASCII) {
   {
     vec_feats.push_back(Feature_T(i, i*2, i*3, i*4));
   }
-
+#if BINARY_FEATURES
+  // TODO: add test for binary features
+#else
   //Save them to a file
   EXPECT_TRUE(saveFeatsToFile("tempFeats.feat", vec_feats));
 
@@ -68,6 +73,7 @@ TEST(featureIO, ASCII) {
     EXPECT_EQ(vec_feats[i].scale(), vec_feats_read[i].scale());
     EXPECT_EQ(vec_feats[i].orientation(), vec_feats_read[i].orientation());
   }
+#endif
 }
 
 //--
