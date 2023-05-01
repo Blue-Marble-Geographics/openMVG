@@ -45,6 +45,36 @@ TEST(UniformSampleTestInAVectorOfUniqueElements, NoRepetions) {
   }
 }
 
+TEST( RandomSequence, t1 )
+{
+    {
+        std::cout << "std::mt19937::default_seed: " << std::mt19937::default_seed << "\n";
+
+        std::mt19937 random_generator( std::mt19937::default_seed );
+
+        /*
+        std::mt19937::default_seed: 5489
+        r0: 3499211612
+        r1: 581869302
+        r2: 3890346734
+        */
+        std::cout << "r0: " << random_generator() << "\n";
+        std::cout << "r1: " << random_generator() << "\n";
+        std::cout << "r2: " << random_generator() << "\n";
+    }
+    {
+        std::mt19937 random_generator( std::mt19937::default_seed );
+
+        std::uniform_int_distribution<uint32_t> distribution( 0, 1024 - 1 );
+        auto d0 = distribution( random_generator );
+        /*
+        d0: 834
+        */
+        std::cout << "d0: " << d0 << std::endl;
+        CHECK_EQUAL( 834, d0 );
+    }
+}
+
 /* ************************************************************************* */
 int main() { TestResult tr; return TestRegistry::runAllTests(tr);}
 /* ************************************************************************* */
