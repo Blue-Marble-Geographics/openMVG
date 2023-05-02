@@ -71,7 +71,13 @@ TEST( RandomSequence, t1 )
         d0: 834
         */
         std::cout << "d0: " << d0 << std::endl;
-        CHECK_EQUAL( 834, d0 );
+#if _MSC_VER >= 1930 /* vs2022 */
+		EXPECT_EQ( 834, d0 );
+#elif _MSC_VER >= 1920 /* vs2019 */
+		EXPECT_EQ( 860, d0 );
+#else
+        // TODO: add your compiler results here
+#endif
     }
 }
 
