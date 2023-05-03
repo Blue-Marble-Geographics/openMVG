@@ -82,7 +82,14 @@ class BlockSparseMatrix : public SparseMatrix {
   virtual double* mutable_values()     { return values_.get(); }
 
   void ToTripletSparseMatrix(TripletSparseMatrix* matrix) const;
-  const CompressedRowBlockStructure* block_structure() const;
+
+
+  // Return a pointer to the block structure. We continue to hold
+  // ownership of the object though.
+  const CompressedRowBlockStructure* block_structure() const
+  {
+    return block_structure_.get();
+  }
 
   // Append the contents of m to the bottom of this matrix. m must
   // have the same column blocks structure as this matrix.

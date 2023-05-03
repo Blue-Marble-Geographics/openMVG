@@ -214,13 +214,6 @@ void BlockSparseMatrix::ToTripletSparseMatrix(
   matrix->set_num_nonzeros(num_nonzeros_);
 }
 
-// Return a pointer to the block structure. We continue to hold
-// ownership of the object though.
-const CompressedRowBlockStructure* BlockSparseMatrix::block_structure()
-    const {
-  return block_structure_.get();
-}
-
 void BlockSparseMatrix::ToTextFile(FILE* file) const {
   CHECK_NOTNULL(file);
   for (int i = 0; i < block_structure_->rows.size(); ++i) {
