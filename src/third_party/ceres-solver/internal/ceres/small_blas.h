@@ -143,6 +143,8 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyEigen) {
   Eigen::Block<MatrixRef, kRowA, kColB>
     block(Cref, start_row_c, start_col_c, num_row_a, num_col_b);
 
+  // JPB WIP Well vectorized.
+
   if (kOperation > 0) {
     block.noalias() += Aref * Bref;
   } else if (kOperation < 0) {
@@ -155,6 +157,8 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyEigen) {
 CERES_GEMM_BEGIN(MatrixMatrixMultiplyNaive) {
   CERES_GEMM_NAIVE_HEADER
   DCHECK_EQ(NUM_COL_A, NUM_ROW_B);
+
+  // JPB WIP Unused?
 
   const int NUM_ROW_C = NUM_ROW_A;
   const int NUM_COL_C = NUM_COL_B;
@@ -200,6 +204,27 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiply) {
 
 CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyEigen) {
   CERES_GEMM_EIGEN_HEADER
+  // JPB WIP
+  // MSVC does not vectorize the transpose variants by default.
+  // The following vectorizes the right hand side of the calculation, but
+  // falls back to scalar code for the rest.
+  // Experiments show this still to be at least 20% faster.
+  // This may not be as the same for AVX.
+  // This should be tested for AVX.
+#if 1
+  Eigen::Block<MatrixRef, kColA, kColB> block(Cref,
+    start_row_c, start_col_c,
+    num_col_a, num_col_b);
+
+  if (kOperation > 0) {
+    block += ( Aref.transpose() * Bref ).eval();
+  } else if (kOperation < 0) {
+    block -= ( Aref.transpose() * Bref ).eval();
+  } else {
+    block = ( Aref.transpose() * Bref ).eval();
+  }
+#else
+  // Original not vectorized.
   Eigen::Block<MatrixRef, kColA, kColB> block(Cref,
                                               start_row_c, start_col_c,
                                               num_col_a, num_col_b);
@@ -210,12 +235,14 @@ CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyEigen) {
   } else {
     block.noalias() = Aref.transpose() * Bref;
   }
+#endif
 }
 
 CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyNaive) {
   CERES_GEMM_NAIVE_HEADER
   DCHECK_EQ(NUM_ROW_A, NUM_ROW_B);
 
+  // JPB WIP Not likely vectorized.  Unused?
   const int NUM_ROW_C = NUM_COL_A;
   const int NUM_COL_C = NUM_COL_B;
   DCHECK_LE(start_row_c + NUM_ROW_C, row_stride_c);
@@ -293,7 +320,7 @@ inline void MatrixVectorMultiply(const double* A,
     cref = Aref.lazyProduct(bref);
   }
 #else
-
+  // JPB WIP Well vectorized.
   DCHECK_GT(num_row_a, 0);
   DCHECK_GT(num_col_a, 0);
   DCHECK((kRowA == Eigen::Dynamic) || (kRowA == num_row_a));
@@ -344,7 +371,7 @@ inline void MatrixTransposeVectorMultiply(const double* A,
     cref = Aref.transpose().lazyProduct(bref);
   }
 #else
-
+  // JPB WIP Not vectorized.
   DCHECK_GT(num_row_a, 0);
   DCHECK_GT(num_col_a, 0);
   DCHECK((kRowA == Eigen::Dynamic) || (kRowA == num_row_a));

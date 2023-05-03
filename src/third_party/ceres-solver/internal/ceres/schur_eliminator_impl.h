@@ -134,17 +134,28 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
 
       // Iterate over the blocks in the row, ignoring the first
       // block since it is the one to be eliminated.
-      for (int c = 1; c < row.cells.size(); ++c) {
-        const Cell& cell = row.cells[c];
-        if (InsertIfNotPresent(
-                &(chunk.buffer_layout), cell.block_id, buffer_size)) {
-          buffer_size += e_block_size * bs->cols[cell.block_id].size;
+      for (int c = 1, cnt = row.cells.size(); c < cnt; ++c) {
+        const Cell& cell = row.cells[c];      
+        for (const auto& i : chunk.buffer_layout) {
+          if (i.first == cell.block_id) {
+          	goto duplicate;
+          }
         }
+        chunk.buffer_layout.emplace_back(cell.block_id, buffer_size);
+        buffer_size += e_block_size * bs->cols[cell.block_id].size;
+duplicate:
+        ;
       }
 
       buffer_size_ = std::max(buffer_size, buffer_size_);
       ++chunk.size;
     }
+
+    std::sort(std::begin(chunk.buffer_layout), std::end(chunk.buffer_layout),
+      []( const auto& a, const auto& b ) {
+        return a.first < b.first;
+      }
+    );    
 
     CHECK_GT(chunk.size, 0);
     r += chunk.size;
@@ -221,8 +232,9 @@ Eliminate(const BlockSparseMatrix* A,
   // z blocks that share a row block/residual term with the y
   // block. EliminateRowOuterProduct does the corresponding operation
   // for the lhs of the reduced linear system.
+  const int cnt = chunks_.size();
 #pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
-  for (int i = 0; i < chunks_.size(); ++i) {
+  for (int i = 0; i < cnt; ++i) {
 #ifdef CERES_USE_OPENMP
     int thread_id = omp_get_thread_num();
 #else
@@ -306,8 +318,9 @@ BackSubstitute(const BlockSparseMatrix* A,
                const double* z,
                double* y) {
   const CompressedRowBlockStructure* bs = A->block_structure();
+  const int cnt = chunks_.size();
 #pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
-  for (int i = 0; i < chunks_.size(); ++i) {
+  for (int i = 0; i < cnt; ++i) {
     const Chunk& chunk = chunks_[i];
     const int e_block_id = bs->rows[chunk.start].cells.front().block_id;
     const int e_block_size = bs->cols[e_block_id].size;
@@ -325,8 +338,8 @@ BackSubstitute(const BlockSparseMatrix* A,
       ete.setZero();
     }
 
-    const double* values = A->values();
-    for (int j = 0; j < chunk.size; ++j) {
+    const double* values = A->BlockSparseMatrix::values();
+    for (int j = 0, cnt2 = chunk.size; j < cnt2; ++j) {
       const CompressedRow& row = bs->rows[chunk.start + j];
       const Cell& e_cell = row.cells.front();
       DCHECK_EQ(e_block_id, e_cell.block_id);
@@ -337,7 +350,7 @@ BackSubstitute(const BlockSparseMatrix* A,
           typename EigenTypes<kRowBlockSize>::ConstVectorRef
           (b + bs->rows[chunk.start + j].block.position, row.block.size);
 
-      for (int c = 1; c < row.cells.size(); ++c) {
+      for (int c = 1, cnt3 = row.cells.size(); c < cnt3; ++c) {
         const int f_block_id = row.cells[c].block_id;
         const int f_block_size = bs->cols[f_block_id].size;
         const int r_block = f_block_id - num_eliminate_blocks_;
@@ -382,7 +395,7 @@ UpdateRhs(const Chunk& chunk,
   const int e_block_size = bs->cols[e_block_id].size;
 
   int b_pos = bs->rows[row_block_counter].block.position;
-  const double* values = A->values();
+  const double* values = A->BlockSparseMatrix::values();
   for (int j = 0; j < chunk.size; ++j) {
     const CompressedRow& row = bs->rows[row_block_counter + j];
     const Cell& e_cell = row.cells.front();
@@ -449,8 +462,8 @@ ChunkDiagonalBlockAndGradient(
   // contribution of its F blocks to the Schur complement, the
   // contribution of its E block to the matrix EE' (ete), and the
   // corresponding block in the gradient vector.
-  const double* values = A->values();
-  for (int j = 0; j < chunk.size; ++j) {
+  const double* values = A->BlockSparseMatrix::values();
+  for (int j = 0, cnt = chunk.size; j < cnt; ++j) {
     const CompressedRow& row = bs->rows[row_block_counter + j];
 
     if (row.cells.size() > 1) {
@@ -471,14 +484,22 @@ ChunkDiagonalBlockAndGradient(
         b + b_pos,
         g);
 
-
     // buffer = E'F. This computation is done by iterating over the
     // f_blocks for each row in the chunk.
-    for (int c = 1; c < row.cells.size(); ++c) {
+    for (int c = 1, cnt2 = row.cells.size(); c < cnt2; ++c) {
       const int f_block_id = row.cells[c].block_id;
       const int f_block_size = bs->cols[f_block_id].size;
-      double* buffer_ptr =
-          buffer +  FindOrDie(chunk.buffer_layout, f_block_id);
+      std::pair<int, int> tmp(f_block_id, 0 /* unused */);
+      const auto it = std::lower_bound(
+        std::begin(chunk.buffer_layout),
+        std::end(chunk.buffer_layout),
+        tmp,
+        [](const auto& lhs, const auto& rhs)
+        {
+          return lhs.first < rhs.first;
+        }
+      );
+      double* buffer_ptr = buffer + it->second;
       MatrixTransposeMatrixMultiply
           <kRowBlockSize, kEBlockSize, kRowBlockSize, kFBlockSize, 1>(
           values + e_cell.position, row.block.size, e_block_size,
@@ -507,6 +528,7 @@ ChunkOuterProduct(const CompressedRowBlockStructure* bs,
   // references to the left hand side.
   const int e_block_size = inverse_ete.rows();
   BufferLayoutType::const_iterator it1 = buffer_layout.begin();
+  BufferLayoutType::const_iterator itEnd = buffer_layout.end();
 
 #ifdef CERES_USE_OPENMP
   int thread_id = omp_get_thread_num();
@@ -517,7 +539,7 @@ ChunkOuterProduct(const CompressedRowBlockStructure* bs,
       chunk_outer_product_buffer_.get() + thread_id * buffer_size_;
 
   // S(i,j) -= bi' * ete^{-1} b_j
-  for (; it1 != buffer_layout.end(); ++it1) {
+  for (; it1 != itEnd; ++it1) {
     const int block1 = it1->first - num_eliminate_blocks_;
     const int block1_size = bs->cols[it1->first].size;
     MatrixTransposeMatrixMultiply
@@ -527,7 +549,7 @@ ChunkOuterProduct(const CompressedRowBlockStructure* bs,
         b1_transpose_inverse_ete, 0, 0, block1_size, e_block_size);
 
     BufferLayoutType::const_iterator it2 = it1;
-    for (; it2 != buffer_layout.end(); ++it2) {
+    for (; it2 != itEnd; ++it2) {
       const int block2 = it2->first - num_eliminate_blocks_;
 
       int r, c, row_stride, col_stride;
@@ -559,7 +581,7 @@ NoEBlockRowsUpdate(const BlockSparseMatrix* A,
                    BlockRandomAccessMatrix* lhs,
                    double* rhs) {
   const CompressedRowBlockStructure* bs = A->block_structure();
-  const double* values = A->values();
+  const double* values = A->BlockSparseMatrix::values();
   for (; row_block_counter < bs->rows.size(); ++row_block_counter) {
     const CompressedRow& row = bs->rows[row_block_counter];
     for (int c = 0; c < row.cells.size(); ++c) {
@@ -598,8 +620,8 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
                         BlockRandomAccessMatrix* lhs) {
   const CompressedRowBlockStructure* bs = A->block_structure();
   const CompressedRow& row = bs->rows[row_block_index];
-  const double* values = A->values();
-  for (int i = 0; i < row.cells.size(); ++i) {
+  const double* values = A->BlockSparseMatrix::values();
+  for (int i = 0, cnt = row.cells.size(); i < cnt; ++i) {
     const int block1 = row.cells[i].block_id - num_eliminate_blocks_;
     DCHECK_GE(block1, 0);
 
@@ -619,7 +641,7 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
               cell_info->values, r, c, row_stride, col_stride);
     }
 
-    for (int j = i + 1; j < row.cells.size(); ++j) {
+    for (int j = i + 1, cnt2 = row.cells.size(); j < cnt2; ++j) {
       const int block2 = row.cells[j].block_id - num_eliminate_blocks_;
       DCHECK_GE(block2, 0);
       DCHECK_LT(block1, block2);
@@ -651,8 +673,8 @@ EBlockRowOuterProduct(const BlockSparseMatrix* A,
                       BlockRandomAccessMatrix* lhs) {
   const CompressedRowBlockStructure* bs = A->block_structure();
   const CompressedRow& row = bs->rows[row_block_index];
-  const double* values = A->values();
-  for (int i = 1; i < row.cells.size(); ++i) {
+  const double* values = A->BlockSparseMatrix::values();
+  for (int i = 1, cnt = row.cells.size(); i < cnt; ++i) {
     const int block1 = row.cells[i].block_id - num_eliminate_blocks_;
     DCHECK_GE(block1, 0);
 
@@ -671,7 +693,7 @@ EBlockRowOuterProduct(const BlockSparseMatrix* A,
           cell_info->values, r, c, row_stride, col_stride);
     }
 
-    for (int j = i + 1; j < row.cells.size(); ++j) {
+    for (int j = i + 1, cnt2 = row.cells.size(); j < cnt2; ++j) {
       const int block2 = row.cells[j].block_id - num_eliminate_blocks_;
       DCHECK_GE(block2, 0);
       DCHECK_LT(block1, block2);
