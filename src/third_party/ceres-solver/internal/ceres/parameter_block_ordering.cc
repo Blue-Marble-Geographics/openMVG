@@ -63,7 +63,7 @@ int ComputeStableSchurOrdering(const Program& program,
   }
   event_logger.AddEvent("Preordering");
 
-  int independent_set_size = StableIndependentSetOrdering(*graph, ordering);
+  int independent_set_size = StableIndependentSetOrderingFaster(*graph, ordering);
   event_logger.AddEvent("StableIndependentSet");
 
   // Add the excluded blocks to back of the ordering vector.

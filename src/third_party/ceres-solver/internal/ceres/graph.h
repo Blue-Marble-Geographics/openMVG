@@ -57,6 +57,11 @@ class Graph {
     }
   }
 
+  void Reserve( size_t numVertices )
+  {
+    vertices_.reserve( numVertices );
+  }
+
   bool RemoveVertex(const Vertex& vertex) {
     if (vertices_.find(vertex) == vertices_.end()) {
       return false;

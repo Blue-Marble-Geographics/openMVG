@@ -234,6 +234,106 @@ int StableIndependentSetOrdering(const Graph<Vertex>& graph,
   return independent_set_size;
 }
 
+template <typename Vertex>
+int StableIndependentSetOrderingFaster(const Graph<Vertex>& graph,
+  std::vector<Vertex>* ordering) {
+  CHECK_NOTNULL(ordering);
+  const HashSet<Vertex>& vertices = graph.vertices();
+  const int num_vertices = vertices.size();
+  CHECK_EQ(vertices.size(), ordering->size());
+
+  // Colors for labeling the graph during the BFS.
+  const char kWhite = 0;
+  const char kGrey = 1;
+  const char kBlack = 2;
+
+  struct Queue_t
+  {
+    Queue_t() = default;
+
+    Queue_t(const HashSet<Vertex>* neighbors, Vertex v) :
+      v_(v),
+      numNeighbors_(neighbors->size()),
+      neighbors_(neighbors)
+    {}
+
+    int operator<(const Queue_t& other) const
+    {
+      return numNeighbors_ < other.numNeighbors_;
+    }
+
+    Vertex v_ = nullptr;
+    uint32_t numNeighbors_ = 0;
+    mutable const HashSet<Vertex>* neighbors_ = nullptr;
+  };
+
+  const int cnt = (int)ordering->size();
+  std::vector<Queue_t> vertex_queue;
+  vertex_queue.reserve(cnt);
+  size_t runtimeCntCheck = 0;
+  for (const auto v : *ordering) {
+    const HashSet<Vertex>& neighbors = graph.Neighbors(v);
+    runtimeCntCheck |= neighbors.size();
+    vertex_queue.emplace_back(&neighbors, v);
+  }
+
+  if (runtimeCntCheck >= 0x100000000UL) {
+    throw std::runtime_error("StableIndependentSetOrderingFaster queue failure.");
+  }
+
+  std::stable_sort(
+    std::begin(vertex_queue),
+    std::end(vertex_queue)
+  );
+
+  // Mark all vertices white.
+  HashMap<Vertex, char> vertex_color;
+  vertex_color.reserve(vertices.size());
+  for (typename HashSet<Vertex>::const_iterator it = vertices.begin();
+    it != vertices.end();
+    ++it) {
+    vertex_color[*it] = kWhite;
+  }
+
+  ordering->clear();
+  ordering->reserve(num_vertices);
+  // Iterate over vertex_queue. Pick the first white vertex, add it
+  // to the independent set. Mark it black and its neighbors grey.
+  for (const auto& i : vertex_queue) {
+    const Vertex vertex = i.v_;
+    if (vertex_color[vertex] != kWhite) {
+      continue;
+    }
+
+    ordering->push_back(vertex);
+    vertex_color[vertex] = kBlack;
+    const HashSet<Vertex>& neighbors = *i.neighbors_;
+    for (typename HashSet<Vertex>::const_iterator it = neighbors.begin();
+      it != neighbors.end();
+      ++it) {
+      vertex_color[*it] = kGrey;
+    }
+  }
+
+  int independent_set_size = ordering->size();
+
+  // Iterate over the vertices and add all the grey vertices to the
+  // ordering. At this stage there should only be black or grey
+  // vertices in the graph.
+  for (const auto& i : vertex_queue) {
+    const Vertex vertex = i.v_;
+    
+    DCHECK(vertex_color[vertex] != kWhite);
+    if (vertex_color[vertex] != kBlack) {
+      ordering->push_back(vertex);
+    }
+  }
+
+  CHECK_EQ(ordering->size(), num_vertices);
+  return independent_set_size;
+}
+
+
 // Find the connected component for a vertex implemented using the
 // find and update operation for disjoint-set. Recursively traverse
 // the disjoint set structure till you reach a vertex whose connected
