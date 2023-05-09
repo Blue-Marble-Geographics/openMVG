@@ -122,6 +122,8 @@ struct TracksBuilder
     }
   }
 
+  // Not a drop-in replacement for Set.
+  // Not fully featured.
   template<class T, int N>
   class SmallSet_t
   {
@@ -143,7 +145,7 @@ public:
 
     int size() const { return cnt_; }
 
-    // Return true if element already exists.
+    // Return false if element already exists.
     std::pair<const T*, bool> insert( const T& item )
     {
       if (cnt_ <= N)
@@ -165,13 +167,13 @@ public:
           auto tmp = impl_.asSet_->insert(item);
           cnt_ = impl_.asSet_->size();
 
-          return std::make_pair(&*tmp.first, tmp.second);
+          return { &*tmp.first, tmp.second };
         }
         else
         {
           auto* ptr = &impl_.asArray_[cnt_++];
           *ptr = item;
-          return std::make_pair(ptr, true);
+          return { ptr, true };
 
           // cnt_ may be N
         }
@@ -206,6 +208,8 @@ public:
     }
   };
 
+  // Not a drop-in replacement for Map.
+  // Not fully featured.
   template<class T>
   class HashMap
   {
@@ -217,20 +221,25 @@ public:
 
     auto& operator[]( size_t index )
     {
-      index = hash(index) % nodes_.size();
+      const auto numNodes = nodes_.size();
+
+      auto hashIndex = hash(index) % numNodes;
       while (1)
       {
-        auto& node = nodes_[ index ];
+        auto& node = nodes_[hashIndex];
         if (node.first == index)
         {
-          return nodes_[index].second;
+          return nodes_[hashIndex].second;
         }
         else if (0xFFFFFFFF == node.first)
         {
           node.first = index;
-          return nodes_[index].second;
+          return nodes_[hashIndex].second;
         }
-        index = (index + 1) % nodes_.size();
+        ++hashIndex;
+        if (hashIndex >= numNodes) {
+          hashIndex = 0;
+        }
       }
     }
 
@@ -260,6 +269,8 @@ public:
   bool Filter(uint32_t nLengthSupTo = 2)
   {
     // Build the Track observations & mark tracks that have id collision:
+    //std::map<uint32_t, std::set<uint32_t>> tracks; // {track_id, {image_id, image_id, ...}}
+
     HashMap<SmallSet_t<uint32_t,8>> tracks(map_node_to_index.size()*2); // {track_id, {image_id, image_id, ...}}
     std::set<uint32_t> problematic_track_id; // {track_id, ...}
 
@@ -281,7 +292,7 @@ public:
     // Reject tracks that have too few observations
     for (const auto & val : tracks)
     {
-      if (val.second.size() < nLengthSupTo)
+      if (val.first != 0xFFFFFFFF && val.second.size() < nLengthSupTo)
       {
         problematic_track_id.insert(val.first);
       }
