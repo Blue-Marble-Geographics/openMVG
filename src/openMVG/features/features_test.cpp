@@ -35,7 +35,16 @@ using Descs_T = std::vector<Desc_T, Eigen::aligned_allocator<Desc_T>>;
 static const int CARD = 12;
 
 TEST(featureIO, NON_EXISTING_FILE) {
+#if BINARY_FEATURES
+  // Try to read a non-existing feature file
+  Feats_T vec_feats;
+  EXPECT_FALSE(loadFeatsFromBinFile("x.feat", vec_feats));
 
+  // Try to read a non-existing descriptor file
+  Descs_T vec_descs;
+  EXPECT_FALSE(loadDescsFromFile("x.desc", vec_descs));
+  EXPECT_FALSE(loadDescsFromBinFile("x.desc", vec_descs));
+#else
   // Try to read a non-existing feature file
   Feats_T vec_feats;
   EXPECT_FALSE(loadFeatsFromFile("x.feat", vec_feats));
@@ -44,6 +53,7 @@ TEST(featureIO, NON_EXISTING_FILE) {
   Descs_T vec_descs;
   EXPECT_FALSE(loadDescsFromFile("x.desc", vec_descs));
   EXPECT_FALSE(loadDescsFromBinFile("x.desc", vec_descs));
+#endif
 }
 
 TEST(featureIO, ASCII) {
@@ -54,11 +64,18 @@ TEST(featureIO, ASCII) {
   }
 
   //Save them to a file
+#if BINARY_FEATURES
+  EXPECT_TRUE(saveFeatsToBinFile("tempFeats.feat", vec_feats));
+#else
   EXPECT_TRUE(saveFeatsToFile("tempFeats.feat", vec_feats));
-
+#endif
   //Read the saved data and compare to input (to check write/read IO)
   Feats_T vec_feats_read;
+#if BINARY_FEATURES
+  EXPECT_TRUE(loadFeatsFromBinFile("tempFeats.feat", vec_feats_read));
+#else
   EXPECT_TRUE(loadFeatsFromFile("tempFeats.feat", vec_feats_read));
+#endif
   EXPECT_EQ(CARD, vec_feats_read.size());
 
   for (int i = 0; i < CARD; ++i)
