@@ -117,18 +117,24 @@ using class_type = Intrinsic_Spherical;
     Mat3X bearing(3, points.cols());
     for (Mat2X::Index i(0); i < points.cols(); ++i)
     {
-      const Vec2 uv = ima2cam(points.col(i));
-
-      const double
-        lon = uv.x() * 2 * M_PI,
-        lat = - uv.y() * 2 * M_PI;
-
-      bearing.col(i) <<
-        std::cos(lat) * std::sin(lon),
-        -std::sin(lat),
-        std::cos(lat) * std::cos(lon);
+      bearing.col(i) = Intrinsic_Spherical::oneBearing(points.col(i));
     }
     return bearing;
+  }
+
+  Vec3 oneBearing(const Vec2& p) const override
+  {
+    const Vec2 uv = ima2cam(p);
+
+    const double
+      lon = uv.x() * 2 * M_PI,
+      lat = - uv.y() * 2 * M_PI;
+
+    return Vec3(
+      std::cos(lat) * std::sin(lon),
+      -std::sin(lat),
+      std::cos(lat) * std::cos(lon)
+    );
   }
 
   /**

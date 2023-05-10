@@ -168,10 +168,14 @@ bool Relative_Pose_Engine::Relative_Pose_Engine::Process(
         for (Mat::Index k = 0; k < x1.cols(); ++k)
         {
           Vec3 X;
+
+          const Vec3 a = (*cam_I).oneBearing(x1.col(k));
+          const Vec3 b = (*cam_I).oneBearing(x2.col(k));
+
           if (Triangulate2View
           (
-            pose_I.rotation(), pose_I.translation(), (*cam_I)(x1.col(k)),
-            pose_J.rotation(), pose_J.translation(), (*cam_J)(x2.col(k)),
+            pose_I.rotation(), pose_I.translation(), a,
+            pose_J.rotation(), pose_J.translation(), b,
             X,
             triangulation_method_
           ))
