@@ -181,6 +181,16 @@ duplicate:
   }
 }
 
+static __forceinline void** GetVTable(void* pObject)
+{
+  return *reinterpret_cast<void***>(pObject);
+}
+
+template <typename T> T CallVirtualFunction(void* Interface, int Index)
+{
+  return (T)(GetVTable(Interface))[Index];
+}
+
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 void
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
@@ -197,24 +207,25 @@ Eliminate(const BlockSparseMatrix* A,
   const CompressedRowBlockStructure* bs = A->block_structure();
   const int num_col_blocks = bs->cols.size();
 
+  auto get_cell_mf = CallVirtualFunction<GetCellMemberFn>(lhs, 1);
+
   // Add the diagonal to the schur complement.
   if (D != NULL) {
 #pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
     for (int i = num_eliminate_blocks_; i < num_col_blocks; ++i) {
       const int block_id = i - num_eliminate_blocks_;
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = lhs->GetCell(block_id, block_id,
+      CellInfo* cell_info = get_cell_mf(lhs, block_id, block_id,
                                          &r, &c,
                                          &row_stride, &col_stride);
-      if (cell_info != NULL) {
-        const int block_size = bs->cols[i].size;
-        typename EigenTypes<Eigen::Dynamic>::ConstVectorRef
-            diag(D + bs->cols[i].position, block_size);
-
+      const int block_size = bs->cols[i].size;
+      typename EigenTypes<Eigen::Dynamic>::ConstVectorRef
+        diag(D + bs->cols[i].position, block_size);
+      {
         CeresMutexLock l(&cell_info->m);
         MatrixRef m(cell_info->values, row_stride, col_stride);
         m.block(r, c, block_size, block_size).diagonal()
-            += diag.array().square().matrix();
+          += diag.array().square().matrix();
       }
     }
   }
@@ -248,11 +259,11 @@ Eliminate(const BlockSparseMatrix* A,
     VectorRef(buffer, buffer_size_).setZero();
 
     typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix
-        ete(e_block_size, e_block_size);
+      ete(e_block_size, e_block_size);
 
     if (D != NULL) {
       const typename EigenTypes<kEBlockSize>::ConstVectorRef
-          diag(D + bs->cols[e_block_id].position, e_block_size);
+        diag(D + bs->cols[e_block_id].position, e_block_size);
       ete = diag.array().square().matrix().asDiagonal();
     } else {
       ete.setZero();
@@ -275,7 +286,7 @@ Eliminate(const BlockSparseMatrix* A,
     // in this chunk (g) and add the outer product of the f_blocks to
     // Schur complement (S += F'F).
     ChunkDiagonalBlockAndGradient(
-        chunk, A, b, chunk.start, &ete, g.get(), buffer, lhs);
+      chunk, A, b, chunk.start, &ete, g.get(), buffer, lhs, get_cell_mf);
 
     // Normally one wouldn't compute the inverse explicitly, but
     // e_block_size will typically be a small number like 3, in
@@ -283,7 +294,7 @@ Eliminate(const BlockSparseMatrix* A,
     // use it to multiply other matrices/vectors instead of doing a
     // Solve call over and over again.
     typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix inverse_ete =
-        InvertPSDMatrix<kEBlockSize>(assume_full_rank_ete_, ete);
+      InvertPSDMatrix<kEBlockSize>(assume_full_rank_ete_, ete);
 
     // For the current chunk compute and update the rhs of the reduced
     // linear system.
@@ -292,21 +303,21 @@ Eliminate(const BlockSparseMatrix* A,
 
     FixedArray<double, 8> inverse_ete_g(e_block_size);
     MatrixVectorMultiply<kEBlockSize, kEBlockSize, 0>(
-        inverse_ete.data(),
-        e_block_size,
-        e_block_size,
-        g.get(),
-        inverse_ete_g.get());
+      inverse_ete.data(),
+      e_block_size,
+      e_block_size,
+      g.get(),
+      inverse_ete_g.get());
 
     UpdateRhs(chunk, A, b, chunk.start, inverse_ete_g.get(), rhs);
 
     // S -= F'E(E'E)^{-1}E'F
-    ChunkOuterProduct(bs, inverse_ete, buffer, chunk.buffer_layout, lhs);
+    ChunkOuterProduct(bs, inverse_ete, buffer, chunk.buffer_layout, lhs, get_cell_mf);
   }
 
   // For rows with no e_blocks, the schur complement update reduces to
   // S += F'F.
-  NoEBlockRowsUpdate(A, b,  uneliminated_row_begins_, lhs, rhs);
+  NoEBlockRowsUpdate(A, b,  uneliminated_row_begins_, lhs, get_cell_mf, rhs);
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -347,8 +358,8 @@ BackSubstitute(const BlockSparseMatrix* A,
       FixedArray<double, 8> sj(row.block.size);
 
       typename EigenTypes<kRowBlockSize>::VectorRef(sj.get(), row.block.size) =
-          typename EigenTypes<kRowBlockSize>::ConstVectorRef
-          (b + bs->rows[chunk.start + j].block.position, row.block.size);
+        typename EigenTypes<kRowBlockSize>::ConstVectorRef
+        (b + bs->rows[chunk.start + j].block.position, row.block.size);
 
       for (int c = 1, cnt3 = row.cells.size(); c < cnt3; ++c) {
         const int f_block_id = row.cells[c].block_id;
@@ -356,21 +367,46 @@ BackSubstitute(const BlockSparseMatrix* A,
         const int r_block = f_block_id - num_eliminate_blocks_;
 
         MatrixVectorMultiply<kRowBlockSize, kFBlockSize, -1>(
-            values + row.cells[c].position, row.block.size, f_block_size,
-            z + lhs_row_layout_[r_block],
-            sj.get());
+          values + row.cells[c].position, row.block.size, f_block_size,
+          z + lhs_row_layout_[r_block],
+          sj.get());
       }
 
-      MatrixTransposeVectorMultiply<kRowBlockSize, kEBlockSize, 1>(
-          values + e_cell.position, row.block.size, e_block_size,
-          sj.get(),
-          y_ptr);
+      // Form transpose()
+      int kRowA = kRowBlockSize;
+      int kColA = kEBlockSize;
+      int kRowB = kRowBlockSize;
+      int kColB = kEBlockSize;
+      int num_row_a = row.block.size;
+      int num_col_a = e_block_size;
+      int num_row_b = row.block.size;
+      int num_col_b = e_block_size;
 
-      MatrixTransposeMatrixMultiply
-          <kRowBlockSize, kEBlockSize, kRowBlockSize, kEBlockSize, 1>(
-              values + e_cell.position, row.block.size, e_block_size,
-              values + e_cell.position, row.block.size, e_block_size,
-              ete.data(), 0, 0, e_block_size, e_block_size);
+      int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+      int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+      int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+      int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+
+      FixedArray<double, 10*10> ATranspose(NUM_ROW_A * NUM_COL_A);
+      const double* __restrict src = values + e_cell.position;
+      double* __restrict dst = ATranspose.get();
+
+      for (int row = 0; row < NUM_ROW_A; ++row) {
+        for (int col = 0; col < NUM_COL_A; ++col) {
+          dst[col * NUM_ROW_A + row] = src[row * NUM_COL_A + col];
+        }
+      }
+
+      MatrixVectorMultiply<kEBlockSize, kRowBlockSize, 1>(
+        ATranspose.get(), e_block_size, row.block.size,
+        sj.get(),
+        y_ptr);
+
+      MatrixMatrixMultiply
+        <kEBlockSize, kRowBlockSize, kRowBlockSize, kEBlockSize, 1>(
+        ATranspose.get(), e_block_size, row.block.size,
+        values + e_cell.position, row.block.size, e_block_size,
+        ete.data(), 0, 0, e_block_size, e_block_size);
     }
 
     y_block = InvertPSDMatrix<kEBlockSize>(assume_full_rank_ete_, ete)
@@ -401,22 +437,23 @@ UpdateRhs(const Chunk& chunk,
     const Cell& e_cell = row.cells.front();
 
     typename EigenTypes<kRowBlockSize>::Vector sj =
-        typename EigenTypes<kRowBlockSize>::ConstVectorRef
-        (b + b_pos, row.block.size);
+      typename EigenTypes<kRowBlockSize>::ConstVectorRef
+      (b + b_pos, row.block.size);
 
     MatrixVectorMultiply<kRowBlockSize, kEBlockSize, -1>(
-        values + e_cell.position, row.block.size, e_block_size,
-        inverse_ete_g, sj.data());
+      values + e_cell.position, row.block.size, e_block_size,
+      inverse_ete_g, sj.data());
 
     for (int c = 1; c < row.cells.size(); ++c) {
       const int block_id = row.cells[c].block_id;
       const int block_size = bs->cols[block_id].size;
       const int block = block_id - num_eliminate_blocks_;
+
       CeresMutexLock l(rhs_locks_[block]);
       MatrixTransposeVectorMultiply<kRowBlockSize, kFBlockSize, 1>(
-          values + row.cells[c].position,
-          row.block.size, block_size,
-          sj.data(), rhs + lhs_row_layout_[block]);
+        values + row.cells[c].position,
+        row.block.size, block_size,
+        sj.data(), rhs + lhs_row_layout_[block]);
     }
     b_pos += row.block.size;
   }
@@ -452,7 +489,8 @@ ChunkDiagonalBlockAndGradient(
     typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix* ete,
     double* g,
     double* buffer,
-    BlockRandomAccessMatrix* lhs) {
+    BlockRandomAccessMatrix* lhs,
+    GetCellMemberFn get_cell_mf) {
   const CompressedRowBlockStructure* bs = A->block_structure();
 
   int b_pos = bs->rows[row_block_counter].block.position;
@@ -467,22 +505,49 @@ ChunkDiagonalBlockAndGradient(
     const CompressedRow& row = bs->rows[row_block_counter + j];
 
     if (row.cells.size() > 1) {
-      EBlockRowOuterProduct(A, row_block_counter + j, lhs);
+      EBlockRowOuterProduct(A, row_block_counter + j, lhs, get_cell_mf);
     }
 
     // Extract the e_block, ETE += E_i' E_i
     const Cell& e_cell = row.cells.front();
-    MatrixTransposeMatrixMultiply
-        <kRowBlockSize, kEBlockSize, kRowBlockSize, kEBlockSize, 1>(
-            values + e_cell.position, row.block.size, e_block_size,
-            values + e_cell.position, row.block.size, e_block_size,
-            ete->data(), 0, 0, e_block_size, e_block_size);
+
+    // Form transpose()
+    int kRowA = kRowBlockSize;
+    int kColA = kEBlockSize;
+    int kRowB = kRowBlockSize;
+    int kColB = kEBlockSize;
+    int num_row_a = row.block.size;
+    int num_col_a = e_block_size;
+    int num_row_b = row.block.size;
+    int num_col_b = e_block_size;
+
+    int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+    int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+    int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+    int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+
+    FixedArray<double, 10*10> ATranspose(NUM_ROW_A * NUM_COL_A);
+    const double* __restrict src = values + e_cell.position;
+    double* __restrict dst = ATranspose.get();
+
+    for (int row = 0; row < NUM_ROW_A; ++row) {
+      for (int col = 0; col < NUM_COL_A; ++col) {
+        dst[col * NUM_ROW_A + row] = src[row * NUM_COL_A + col];
+      }
+    }
+
+    MatrixMatrixMultiply
+      <kEBlockSize, kRowBlockSize, kRowBlockSize, kEBlockSize, 1>(
+      ATranspose.get(), e_block_size, row.block.size,
+      values + e_cell.position, row.block.size, e_block_size,
+      ete->data(), 0, 0, e_block_size, e_block_size);
 
     // g += E_i' b_i
-    MatrixTransposeVectorMultiply<kRowBlockSize, kEBlockSize, 1>(
-        values + e_cell.position, row.block.size, e_block_size,
-        b + b_pos,
-        g);
+    // g guaranteed 0 on first iteration.
+    MatrixVectorMultiply<kEBlockSize, kRowBlockSize, 1>(
+      ATranspose.get(), e_block_size, row.block.size,
+      b + b_pos,
+      g);
 
     // buffer = E'F. This computation is done by iterating over the
     // f_blocks for each row in the chunk.
@@ -500,11 +565,11 @@ ChunkDiagonalBlockAndGradient(
         }
       );
       double* buffer_ptr = buffer + it->second;
-      MatrixTransposeMatrixMultiply
-          <kRowBlockSize, kEBlockSize, kRowBlockSize, kFBlockSize, 1>(
-          values + e_cell.position, row.block.size, e_block_size,
-          values + row.cells[c].position, row.block.size, f_block_size,
-          buffer_ptr, 0, 0, e_block_size, f_block_size);
+      MatrixMatrixMultiply
+        <kEBlockSize, kRowBlockSize, kRowBlockSize, kFBlockSize, 1>(
+        ATranspose.get(), e_block_size, row.block.size,
+        values + row.cells[c].position, row.block.size, f_block_size,
+        buffer_ptr, 0, 0, e_block_size, f_block_size);
     }
     b_pos += row.block.size;
   }
@@ -518,10 +583,11 @@ template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 void
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
 ChunkOuterProduct(const CompressedRowBlockStructure* bs,
-                  const Matrix& inverse_ete,
+                  const typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix& inverse_ete,
                   const double* buffer,
                   const BufferLayoutType& buffer_layout,
-                  BlockRandomAccessMatrix* lhs) {
+                  BlockRandomAccessMatrix* lhs,
+                  GetCellMemberFn get_cell_mf) {
   // This is the most computationally expensive part of this
   // code. Profiling experiments reveal that the bottleneck is not the
   // computation of the right-hand matrix product, but memory
@@ -536,34 +602,66 @@ ChunkOuterProduct(const CompressedRowBlockStructure* bs,
   int thread_id = 0;
 #endif
   double* b1_transpose_inverse_ete =
-      chunk_outer_product_buffer_.get() + thread_id * buffer_size_;
+    chunk_outer_product_buffer_.get() + thread_id * buffer_size_;
 
   // S(i,j) -= bi' * ete^{-1} b_j
   for (; it1 != itEnd; ++it1) {
     const int block1 = it1->first - num_eliminate_blocks_;
     const int block1_size = bs->cols[it1->first].size;
+
+    // Not advantageous to pre-transpose A for this.
     MatrixTransposeMatrixMultiply
-        <kEBlockSize, kFBlockSize, kEBlockSize, kEBlockSize, 0>(
-        buffer + it1->second, e_block_size, block1_size,
-        inverse_ete.data(), e_block_size, e_block_size,
-        b1_transpose_inverse_ete, 0, 0, block1_size, e_block_size);
+      <kEBlockSize, kFBlockSize, kEBlockSize, kEBlockSize, 0>(
+      buffer + it1->second, e_block_size, block1_size,
+      inverse_ete.data(), e_block_size, e_block_size,
+      b1_transpose_inverse_ete, 0, 0, block1_size, e_block_size);
 
     BufferLayoutType::const_iterator it2 = it1;
     for (; it2 != itEnd; ++it2) {
       const int block2 = it2->first - num_eliminate_blocks_;
 
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = lhs->GetCell(block1, block2,
+      CellInfo* cell_info = get_cell_mf(lhs, block1, block2,
                                          &r, &c,
                                          &row_stride, &col_stride);
-      if (cell_info != NULL) {
-        const int block2_size = bs->cols[it2->first].size;
+      const int block2_size = bs->cols[it2->first].size;
+
+      int kRowA = kFBlockSize;
+      int kColA = kEBlockSize;
+      int kRowB = kEBlockSize;
+      int kColB = kFBlockSize;
+      int num_row_a = block1_size;
+      int num_col_a = e_block_size;
+      int num_row_b = e_block_size;
+      int num_col_b = block2_size;
+
+      int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+      int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+      int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+      int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+      
+      int NUM_ROW_C = NUM_ROW_A;
+      int NUM_COL_C = NUM_COL_B;
+
+      FixedArray<double, 10*10> tmp(NUM_ROW_C * NUM_COL_C);
+
+      MatrixMatrixMultiply
+        <kFBlockSize, kEBlockSize, kEBlockSize, kFBlockSize, 0>(
+        b1_transpose_inverse_ete, block1_size, e_block_size,
+        buffer + it2->second, e_block_size, block2_size,
+        tmp.get(), 0, 0, NUM_ROW_C, NUM_COL_C);
+
+      {
+        const double* __restrict pTmp = tmp.get();
+        double* __restrict C = cell_info->values + r * col_stride + c;
+
         CeresMutexLock l(&cell_info->m);
-        MatrixMatrixMultiply
-            <kFBlockSize, kEBlockSize, kEBlockSize, kFBlockSize, -1>(
-                b1_transpose_inverse_ete, block1_size, e_block_size,
-                buffer  + it2->second, e_block_size, block2_size,
-                cell_info->values, r, c, row_stride, col_stride);
+
+        for (int row = 0; row < NUM_ROW_A; ++row, C += col_stride) {
+          for (int col = 0; col < NUM_COL_B; ++col, ++pTmp) {
+            C[col] -= *pTmp;
+          }
+        }
       }
     }
   }
@@ -579,6 +677,7 @@ NoEBlockRowsUpdate(const BlockSparseMatrix* A,
                    const double* b,
                    int row_block_counter,
                    BlockRandomAccessMatrix* lhs,
+                   GetCellMemberFn get_cell_mf,
                    double* rhs) {
   const CompressedRowBlockStructure* bs = A->block_structure();
   const double* values = A->BlockSparseMatrix::values();
@@ -588,12 +687,14 @@ NoEBlockRowsUpdate(const BlockSparseMatrix* A,
       const int block_id = row.cells[c].block_id;
       const int block_size = bs->cols[block_id].size;
       const int block = block_id - num_eliminate_blocks_;
+
+      // Not advantageous to pre-transpose A for this.
       MatrixTransposeVectorMultiply<Eigen::Dynamic, Eigen::Dynamic, 1>(
-          values + row.cells[c].position, row.block.size, block_size,
-          b + row.block.position,
-          rhs + lhs_row_layout_[block]);
+        values + row.cells[c].position, row.block.size, block_size,
+        b + row.block.position,
+        rhs + lhs_row_layout_[block]);
     }
-    NoEBlockRowOuterProduct(A, row_block_counter, lhs);
+    NoEBlockRowOuterProduct(A, row_block_counter, lhs, get_cell_mf);
   }
 }
 
@@ -617,7 +718,8 @@ void
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
 NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
                         int row_block_index,
-                        BlockRandomAccessMatrix* lhs) {
+                        BlockRandomAccessMatrix* lhs,
+                        GetCellMemberFn get_cell_mf) {
   const CompressedRowBlockStructure* bs = A->block_structure();
   const CompressedRow& row = bs->rows[row_block_index];
   const double* values = A->BlockSparseMatrix::values();
@@ -627,18 +729,21 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
 
     const int block1_size = bs->cols[row.cells[i].block_id].size;
     int r, c, row_stride, col_stride;
-    CellInfo* cell_info = lhs->GetCell(block1, block1,
+    CellInfo* cell_info = get_cell_mf(lhs, block1, block1,
                                        &r, &c,
                                        &row_stride, &col_stride);
-    if (cell_info != NULL) {
+
+    // JPB WIP Possibly advantageous to pre-transpose A for this.
+
+    {
       CeresMutexLock l(&cell_info->m);
       // This multiply currently ignores the fact that this is a
       // symmetric outer product.
       MatrixTransposeMatrixMultiply
-          <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(
-              values + row.cells[i].position, row.block.size, block1_size,
-              values + row.cells[i].position, row.block.size, block1_size,
-              cell_info->values, r, c, row_stride, col_stride);
+        <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(
+        values + row.cells[i].position, row.block.size, block1_size,
+        values + row.cells[i].position, row.block.size, block1_size,
+        cell_info->values, r, c, row_stride, col_stride);
     }
 
     for (int j = i + 1, cnt2 = row.cells.size(); j < cnt2; ++j) {
@@ -646,18 +751,16 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
       DCHECK_GE(block2, 0);
       DCHECK_LT(block1, block2);
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = lhs->GetCell(block1, block2,
+      CellInfo* cell_info = get_cell_mf(lhs, block1, block2,
                                          &r, &c,
                                          &row_stride, &col_stride);
-      if (cell_info != NULL) {
-        const int block2_size = bs->cols[row.cells[j].block_id].size;
-        CeresMutexLock l(&cell_info->m);
-        MatrixTransposeMatrixMultiply
-            <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(
-                values + row.cells[i].position, row.block.size, block1_size,
-                values + row.cells[j].position, row.block.size, block2_size,
-                cell_info->values, r, c, row_stride, col_stride);
-      }
+      const int block2_size = bs->cols[row.cells[j].block_id].size;
+      CeresMutexLock l(&cell_info->m);
+      MatrixTransposeMatrixMultiply
+        <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(
+        values + row.cells[i].position, row.block.size, block1_size,
+        values + row.cells[j].position, row.block.size, block2_size,
+        cell_info->values, r, c, row_stride, col_stride);
     }
   }
 }
@@ -670,7 +773,8 @@ void
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::
 EBlockRowOuterProduct(const BlockSparseMatrix* A,
                       int row_block_index,
-                      BlockRandomAccessMatrix* lhs) {
+                      BlockRandomAccessMatrix* lhs,
+                      GetCellMemberFn get_cell_mf) {
   const CompressedRowBlockStructure* bs = A->block_structure();
   const CompressedRow& row = bs->rows[row_block_index];
   const double* values = A->BlockSparseMatrix::values();
@@ -680,17 +784,73 @@ EBlockRowOuterProduct(const BlockSparseMatrix* A,
 
     const int block1_size = bs->cols[row.cells[i].block_id].size;
     int r, c, row_stride, col_stride;
-    CellInfo* cell_info = lhs->GetCell(block1, block1,
+    CellInfo* cell_info = get_cell_mf(lhs, block1, block1,
                                        &r, &c,
                                        &row_stride, &col_stride);
-    if (cell_info != NULL) {
+
+    // Form b1.transpose()
+    int kRowA = kRowBlockSize;
+    int kColA = kFBlockSize;
+    int kRowB = kRowBlockSize;
+    int kColB = kFBlockSize;
+    int num_row_a = row.block.size;
+    int num_col_a = block1_size;
+    int num_row_b = row.block.size;
+    int num_col_b = block1_size;
+
+    int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+    int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+    int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+    int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+
+    FixedArray<double, 10*10> ATranspose(NUM_ROW_A * NUM_COL_A);
+    const double* __restrict src = values + row.cells[i].position;
+    double* __restrict dst = ATranspose.get();
+
+    for (int row = 0; row < NUM_ROW_A; ++row) {
+      for (int col = 0; col < NUM_COL_A; ++col) {
+        dst[col * NUM_ROW_A + row] = src[row * NUM_COL_A + col];
+      }
+    }
+
+    // Create a temporary matrix to hold b1.transpose() * b1;
+    kRowA = kFBlockSize;
+    kColA = kRowBlockSize;
+    kRowB = kRowBlockSize;
+    kColB = kFBlockSize;
+    num_row_a = block1_size;
+    num_col_a = row.block.size;
+    num_row_b = row.block.size;
+    num_col_b = block1_size;
+
+    NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+    NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+    NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+    NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+
+    int NUM_ROW_C = NUM_ROW_A;
+    int NUM_COL_C = NUM_COL_B;
+
+    FixedArray<double, 10*10> tmp(NUM_ROW_C * NUM_COL_C);
+
+    MatrixMatrixMultiply
+      <kFBlockSize, kRowBlockSize, kRowBlockSize, kFBlockSize, 0>(
+      ATranspose.get(), block1_size, row.block.size,
+      values + row.cells[i].position, row.block.size, block1_size,
+      tmp.get(), 0, 0, NUM_ROW_C, NUM_COL_C);
+
+    // block += b1.transpose() * b1;
+    {
+      const double* __restrict pTmp = tmp.get();
+      double* __restrict C = cell_info->values + r * col_stride + c;
+
       CeresMutexLock l(&cell_info->m);
-      // block += b1.transpose() * b1;
-      MatrixTransposeMatrixMultiply
-          <kRowBlockSize, kFBlockSize, kRowBlockSize, kFBlockSize, 1>(
-          values + row.cells[i].position, row.block.size, block1_size,
-          values + row.cells[i].position, row.block.size, block1_size,
-          cell_info->values, r, c, row_stride, col_stride);
+
+      for (int row = 0; row < NUM_ROW_C; ++row, C += col_stride) {
+        for (int col = 0; col < NUM_COL_C; ++col, ++pTmp) {
+          C[col] += *pTmp;
+        }
+      }
     }
 
     for (int j = i + 1, cnt2 = row.cells.size(); j < cnt2; ++j) {
@@ -699,17 +859,48 @@ EBlockRowOuterProduct(const BlockSparseMatrix* A,
       DCHECK_LT(block1, block2);
       const int block2_size = bs->cols[row.cells[j].block_id].size;
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = lhs->GetCell(block1, block2,
+      CellInfo* cell_info = get_cell_mf(lhs, block1, block2,
                                          &r, &c,
                                          &row_stride, &col_stride);
-      if (cell_info != NULL) {
-        // block += b1.transpose() * b2;
+
+      // Create a temporary matrix to hold b1.transpose() * b2;
+      kRowA = kFBlockSize;
+      kColA = kRowBlockSize;
+      kRowB = kRowBlockSize;
+      kColB = kFBlockSize;
+      num_row_a = block1_size;
+      num_col_a = row.block.size;
+      num_row_b = row.block.size;
+      num_col_b = block2_size; // Differs
+
+      NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
+      NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
+      NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);
+      NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
+
+      NUM_ROW_C = NUM_ROW_A;
+      NUM_COL_C = NUM_COL_B;
+
+      FixedArray<double, 10*10> tmp2(NUM_ROW_C * NUM_COL_C);
+
+      MatrixMatrixMultiply
+        <kFBlockSize, kRowBlockSize, kRowBlockSize, kFBlockSize, 0>(
+        ATranspose.get(), block1_size, row.block.size,
+        values + row.cells[j].position, row.block.size, block2_size,
+        tmp.get(), 0, 0, NUM_ROW_C, NUM_COL_C);
+
+      // block += b1.transpose() * b2;
+      {
+        const double* __restrict pTmp = tmp.get();
+        double* __restrict C = cell_info->values + r * col_stride + c;
+
         CeresMutexLock l(&cell_info->m);
-        MatrixTransposeMatrixMultiply
-            <kRowBlockSize, kFBlockSize, kRowBlockSize, kFBlockSize, 1>(
-                values + row.cells[i].position, row.block.size, block1_size,
-                values + row.cells[j].position, row.block.size, block2_size,
-                cell_info->values, r, c, row_stride, col_stride);
+
+        for (int row = 0; row < NUM_ROW_C; ++row, C += col_stride) {
+          for (int col = 0; col < NUM_COL_C; ++col, ++pTmp) {
+            C[col] += *pTmp;
+          }
+        }
       }
     }
   }

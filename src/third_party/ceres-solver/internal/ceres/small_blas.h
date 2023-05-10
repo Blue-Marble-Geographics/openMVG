@@ -380,6 +380,29 @@ inline void MatrixTransposeVectorMultiply(const double* A,
   const int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : num_row_a);
   const int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : num_col_a);
 
+  // Doesn't help _mm_prefetch((const char*) c, _MM_HINT_T0);
+  // Manually calc first element e.g. double tmp = A[row] * b[0] doesn't help.
+  // Newer solver code slightly slower.
+  // Not faster to pre-transpose.
+#if 0
+  // 3.4 -> 3.2 5% faster?
+  for (int row = 0; row < NUM_COL_A; ++row) {
+
+    double tmp1 = 0.0;
+    double tmp2 = 0.0;
+    int col = 0;
+    for (; col < NUM_ROW_A; col += 2 ) {
+      tmp1 += A[col * NUM_COL_A + row] * b[col];
+      tmp2 += A[(col+1) * NUM_COL_A + row] * b[(col+1)];
+    }
+    if (NUM_ROW_A&1) {
+      tmp1 += A[col * NUM_COL_A + row] * b[col];
+    }
+
+    c[row] += (tmp1 + tmp2);
+
+  }
+#endif
   for (int row = 0; row < NUM_COL_A; ++row) {
     double tmp = 0.0;
     for (int col = 0; col < NUM_ROW_A; ++col) {
