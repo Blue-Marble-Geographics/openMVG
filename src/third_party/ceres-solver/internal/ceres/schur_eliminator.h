@@ -279,6 +279,16 @@ class SchurEliminator : public SchurEliminatorBase {
     BufferLayoutType buffer_layout;
   };
 
+  typedef CellInfo*(__thiscall* GetCellMemberFn)(
+    void*,
+    int row_block_id,
+    int col_block_id,
+    int* row,
+    int* col,
+    int* row_stride,
+    int* col_stride
+    );
+
   void ChunkDiagonalBlockAndGradient(
       const Chunk& chunk,
       const BlockSparseMatrix* A,
@@ -287,7 +297,9 @@ class SchurEliminator : public SchurEliminatorBase {
       typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix* eet,
       double* g,
       double* buffer,
-      BlockRandomAccessMatrix* lhs);
+      BlockRandomAccessMatrix* lhs,
+      GetCellMemberFn get_cell_mf);
+
 
   void UpdateRhs(const Chunk& chunk,
                  const BlockSparseMatrix* A,
@@ -297,24 +309,28 @@ class SchurEliminator : public SchurEliminatorBase {
                  double* rhs);
 
   void ChunkOuterProduct(const CompressedRowBlockStructure* bs,
-                         const Matrix& inverse_eet,
+                         const typename EigenTypes<kEBlockSize, kEBlockSize>::Matrix& inverse_eet,
                          const double* buffer,
                          const BufferLayoutType& buffer_layout,
-                         BlockRandomAccessMatrix* lhs);
+                         BlockRandomAccessMatrix* lhs,
+                         GetCellMemberFn get_cell_mf);
   void EBlockRowOuterProduct(const BlockSparseMatrix* A,
                              int row_block_index,
-                             BlockRandomAccessMatrix* lhs);
+                             BlockRandomAccessMatrix* lhs,
+                             GetCellMemberFn get_cell_mf);
 
 
   void NoEBlockRowsUpdate(const BlockSparseMatrix* A,
                              const double* b,
                              int row_block_counter,
                              BlockRandomAccessMatrix* lhs,
+                             GetCellMemberFn get_cell_mf,
                              double* rhs);
 
   void NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
                                int row_block_index,
-                               BlockRandomAccessMatrix* lhs);
+                               BlockRandomAccessMatrix* lhs,
+                               GetCellMemberFn get_cell_mf);
 
   int num_threads_;
   int num_eliminate_blocks_;
