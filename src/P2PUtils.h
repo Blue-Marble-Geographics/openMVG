@@ -5,15 +5,14 @@
 
 /* Output created .feat files in binary to speed up later steps. */
 /* Improves CF performance by 5% */
-#define BINARY_FEATURES              (0)
+#define BINARY_FEATURES              (1)
 
 /* Potentially faster, but will reorder generated keypoints and make debugging more difficult. */
 #define PARALLEL_KEYPOINT_GENERATION (1)
 
-#define FAST_SIFT_DETECT             (0) /* Needs accuracy testing */
-#define USE_FP_FAST                  (0) /* WIP */
-#define FAST_SIFT_GRADIENT_UPDATE    (1) /* Faster, adds insignificant error to output. */
-#define FAST_SIFT_CALC_KEYPOINTS     (1) /* Faster with ~1% error on 1% of the output */
+#define FAST_SIFT_DETECT             (0) /* Default behavior.  No error loss. */
+#define FAST_SIFT_GRADIENT_UPDATE    (0) /* Faster, adds insignificant error. */
+#define FAST_SIFT_CALC_KEYPOINTS     (0) /* Faster with ~1% error on 1% of the output */
 #define FAST_SIFT_CALC_KEYPOINT_ORIENTATIONS (0)
 #define    NO_FAST_EXP               (0)
 #define    USE_FAST_EXP              (1)
@@ -45,7 +44,7 @@
 #define GROUP_SIZE (4)
 
 #include <emmintrin.h>
-#define _DataF __m128
+#define _Data __m128
 #define _DataI __m128i
 #define _CastIF _mm_castps_si128
 #define _CastFI _mm_castsi128_ps
@@ -56,6 +55,7 @@
 #define _CmpGT(a,b) _mm_cmpgt_ps(a, b)
 #define _CmpLT(a,b) _mm_cmplt_ps(a, b)
 #define _CmpEQI(a,b) _mm_cmpeq_epi32(a, b)
+#define _CmpLTI(a,b) _mm_cmplt_epi32(a, b)
 #define _CmpGTI(a,b) _mm_cmpgt_epi32(a, b)
 #define _Set _mm_set1_ps
 #define _SetN(a,b,c,d) _mm_set_ps((d),(c),(b),(a))
@@ -76,6 +76,7 @@
 #define _And _mm_and_ps
 #define _AndI _mm_and_si128
 #define _Or _mm_or_ps
+#define _OrI _mm_or_si128
 #define _Xor _mm_xor_ps
 #define _ShiftLI _mm_slli_epi32
 #define _ShiftRI _mm_srai_epi32
@@ -103,7 +104,7 @@
 #include <immintrin.h>
 #undef ALIGN_SIZE
 #undef GROUP_SIZE
-#undef _DataF
+#undef _Data
 #undef _DataI
 #undef _CastFI
 #undef _CastIF
@@ -114,7 +115,8 @@
 #undef _CmpGT
 #undef _CmpLT
 #undef _CmpEQI
-#undef _CmpGTI
+#undef _CmpLT
+#undef _CmpGEI
 #undef _Set
 #undef _SetN
 #undef _SetNDeltas
@@ -130,6 +132,7 @@
 #undef _And
 #undef _AndI
 #undef _Or
+#undef _OrI
 #undef _Xor
 #undef _ShiftLI
 #undef _ShiftRI
@@ -150,7 +153,7 @@
 #undef _Floor
 #define ALIGN_SIZE 32
 #define GROUP_SIZE (8)
-#define _DataF __m256
+#define _Data __m256
 #define _DataI __m256i
 #define _CastFI _mm256_castsi256_ps
 #define _CastIF _mm256_castps_si256
@@ -162,6 +165,7 @@
 #define _CmpLT(a,b) _mm256_cmp_ps(a, b, _CMP_LT_OS)
 #define _CmpEQI(a,b) _mm256_cmpeq_epi32(a, b)
 #define _CmpGTI(a,b) _mm256_cmpgt_epi32(a, b)
+#define _CmpLTI(a,b) _mm256_cmplt_epi32(a, b)
 #define _Set _mm256_set1_ps
 #define _SetN(a,b,c,d,e,f,g,h) _mm256_set_ps((h),(g),(f),(e),(d),(c),(b),(a))
 #define _SetNDeltas(a,b) _SetN((a), ((a)+(b)), (a)+(b)*2.f, (a)+(b)*3.f, (a)+(b)*4.f, (a)+(b)*5.f, (a)+(b)*6.f, (a)+(b)*7.f)
@@ -177,6 +181,7 @@
 #define _And _mm256_and_ps
 #define _AndI _mm256_and_si256
 #define _Or _mm256_or_ps
+#define _OrI _mm256_or_si256
 #define _Xor _mm256_xor_ps
 /* _Shifts are AVX2 only */
 #define _ShiftLI _mm256_slli_epi32
@@ -212,12 +217,12 @@ static __forceinline  float FastExpS(float x)
   } cvt;
 
   /* exp(x) = 2^i * 2^f; i = floor (log2(e) * x), 0 <= f <= 1 */
-  float t = x * 1.442695041f;
-  float fi = floorf(t); /* JPB WIP BUG */
-  float f = t - fi;
-  int i = (int)fi;
-  cvt.f = (0.3371894346f * f + 0.657636276f) * f + 1.00172476f; /* compute 2^f */
-  cvt.i += (i << 23);                                          /* scale by 2^i */
+  float t              = x * 1.442695041f;
+  float fi             = floorf(t); /* JPB WIP BUG */
+  float f              = t - fi;
+  int i                = (int)fi;
+  cvt.f                = (0.3371894346f * f + 0.657636276f) * f + 1.00172476f; /* compute 2^f */
+  cvt.i                += (i << 23);                                          /* scale by 2^i */
 
   return cvt.f;
 }
@@ -225,54 +230,59 @@ static __forceinline  float FastExpS(float x)
 /* https://stackoverflow.com/questions/53872265/how-do-you-process-exp-with-sse2 */
 static __forceinline float fastExp3S(float x)  // cubic spline approximation
 {
-  // Comparable speed to fast_expn, better accuracy?
+  /* https://stackoverflow.com/questions/53872265/how-do-you-process-exp-with-sse2 */
+  /* Comparable speed to fast_expn, better accuracy? */
   union { float f; int i; } reinterpreter;
 
-  reinterpreter.i = (int)(12102203.0f*x) + 127*(1 << 23);
-  int m = (reinterpreter.i >> 7) & 0xFFFF;  // copy mantissa
-                                                // empirical values for small maximum relative error (8.34e-5):
-  reinterpreter.i +=
+  reinterpreter.i      = (int)(12102203.0f*x) + 127*(1 << 23);
+  int m = (reinterpreter.i >> 7) & 0xFFFF;          /* copy mantissa */
+                                                    /* empirical values for small maximum relative error(8.34e-5) */
+  reinterpreter.i      +=
       ((((((((1277*m) >> 14) + 14825)*m) >> 14) - 79749)*m) >> 11) - 626;
   return reinterpreter.f;
 }
 
-/* https://stackoverflow.com/questions/47025373/fastest-implementation-of-the-natural-exponential-function-using-sse */
+static __forceinline _Data FastExp(_Data x)
+{
+  /* https://stackoverflow.com/questions/47025373/fastest-implementation-of-the-natural-exponential-function-using-sse */
 static __forceinline _DataF FastExp( _DataF x )
 {
 #if (FAST_EXP_VARIANT ==  USE_FASTER_EXP)
     /* max. rel. error = 3.55959567e-2 on [-87.33654, 88.72283] */
-    _DataF const a = _Set( 12102203.0f ); /* (1 << 23) / log(2) */
+    _Data const a = _Set( 12102203.0f ); /* (1 << 23) / log(2) */
     _DataI const b = SetI( 127 * ( 1 << 23 ) - 298765 );
     _DataI const t = _AddI( _ConvertIF( _Mul( a, x ) ), b );
     return _CastFI( t );
 #elif (FAST_EXP_VARIANT == USE_FAST_EXP)
     /* max. rel. error = 1.72863156e-3 on [-87.33654, 88.72283] */
-    _DataF t, f, e, p, r;
+    _Data t, f, e, p, r;
     _DataI i, j;
-    _DataF const l2e = _Set (1.442695041f);  /* log2(e) */
-    _DataF const c0  = _Set (0.3371894346f);
-    _DataF const c1  = _Set (0.657636276f);
-    _DataF const c2  = _Set (1.00172476f);
+    _Data const l2e    = _Set (1.442695041f);  /* log2(e) */
+    _Data const c0     = _Set (0.3371894346f);
+    _Data const c1     = _Set (0.657636276f);
+    _Data const c2     = _Set (1.00172476f);
 
     /* exp(x) = 2^i * 2^f; i = floor (log2(e) * x), 0 <= f <= 1 */   
-    t = _Mul (x, l2e);             /* t = log2(e) * x */
+    t                  = _Mul (x, l2e);             /* t = log2(e) * x */
 #ifdef __SSE4_1__
-    e = _Floor (t);                /* floor(t) */
-    i = _ConvertIF (e);             /* (int)floor(t) */
+    e                  = _Floor (t);                /* floor(t) */
+    i                  = _ConvertIF (e);            /* (int)floor(t) */
 #else /* __SSE4_1__*/
-    i = _TruncateIF (t);            /* i = (int)t */
-    j = _ShiftRU (_CastIF (x), 31); /* signbit(t) */
-    i = _SubI (i, j);            /* (int)t - signbit(t) */
-    e = _ConvertFI (i);             /* floor(t) ~= (int)t - signbit(t) */
+    i                  = _TruncateIF (t);           /* i = (int)t */
+    j                  = _ShiftRU (_CastIF (x), 31);/* signbit(t) */
+    i                  = _SubI (i, j);              /* (int)t - signbit(t) */
+    e                  = _ConvertFI (i);            /* floor(t) ~= (int)t - signbit(t) */
 #endif /* __SSE4_1__*/
-    f = _Sub (t, e);               /* f = t - floor(t) */
-    p = c0;                              /* c0 */
-    p = _Mul (p, f);               /* c0 * f */
-    p = _Add (p, c1);              /* c0 * f + c1 */
-    p = _Mul (p, f);               /* (c0 * f + c1) * f */
-    p = _Add (p, c2);              /* p = (c0 * f + c1) * f + c2 ~= 2^f */
-    j = _ShiftLI (i, 23);          /* i << 23 */
-    r = _CastFI (_AddI (j, _CastIF (p))); /* r = p * 2^i*/
+    f                  = _Sub (t, e);               /* f = t - floor(t) */
+    p                  = c0;                              /* c0 */
+    p                  = _Mul (p, f);               /* c0 * f */
+    p                  = _Add (p, c1);              /* c0 * f + c1 */
+    p                  = _Mul (p, f);               /* (c0 * f + c1) * f */
+    p                  = _Add (p, c2);              /* p = (c0 * f + c1) * f + c2 ~= 2^f */
+    j                  = _ShiftLI (i, 23);          /* i << 23 */
+    r                  = _CastFI (                  /* r = p * 2^i*/
+                           _AddI (j, _CastIF (p))
+                         );
 
     return r;
 #else
@@ -281,69 +291,72 @@ static __forceinline _DataF FastExp( _DataF x )
 }
 
 #ifdef __SSE4_1__
-static __forceinline __m128 Blend( _DataF a, _DataF b, _DataF mask )
+static __forceinline _Data Blend(_Data a, _Data b, _Data mask)
 {
-  return _mm_blendv_ps( a, b, mask );
+  return _mm_blendv_ps(a, b, mask);
 }
 #else
-static __forceinline _DataF Blend( _DataF a, _DataF b, _DataF mask )
+static __forceinline _Data Blend(_Data a, _Data b, _Data mask)
 {
-    _DataF const and_mask = _And(mask, b);                 // and_mask = (mask & b)
-    _DataF const andnot_mask = _mm_andnot_ps(mask, a);     // andnot_mask = (~mask & a)
+    _Data const andMask = _And(mask, b);            /* and_mask = ( mask & b ) */
+    _Data const andNotMask
+                        = _mm_andnot_ps(mask, a);   /* andnot_mask = (~mask & a) */
 
-  return _Or(and_mask, andnot_mask);                 // result = (mask & b) | (~mask & a)
+  return _Or(andMask, andNotMask);                  /* result = ( mask & b ) | ( ~mask & a ) */
 }
 #endif
 
 #ifdef __AVX2__
-static __forceinline _DataF Blend256( _DataF a, _DataF b, _DataF mask )
+static __forceinline _Data Blend256( _Data a, _Data b, _Data mask )
 {
   return _mm256_blendv_ps( a, b, mask );
 }
 #endif
 
-/* https://blasingame.engr.tamu.edu/z_zCourse_Archive/P620_18C/P620_zReference/PDF_Txt_Hst_Apr_Cmp_(1955).pdf */
-static __forceinline _DataF FastAtan(_DataF x)
+static __forceinline _Data FastAtan(_Data x)
 {
-  _DataF const a1  = _Set(0.99997726f);
-  _DataF const a3  = _Set(-0.33262347f);
-  _DataF const a5  = _Set( 0.19354346f );
-  _DataF const a7  = _Set( -0.11643287f );
-  _DataF const a9  = _Set( 0.05265332f );
-  _DataF const a11  = _Set( -0.01172120f );
+  /* https://blasingame.engr.tamu.edu/z_zCourse_Archive/P620_18C/P620_zReference/PDF_Txt_Hst_Apr_Cmp_(1955).pdf */
+  _Data const a1        = _Set(0.99997726f);
+  _Data const a3        = _Set(-0.33262347f);
+  _Data const a5        = _Set(0.19354346f);
+  _Data const a7        = _Set(-0.11643287f);
+  _Data const a9        = _Set(0.05265332f);
+  _Data const a11       = _Set(-0.01172120f);
 
-  _DataF const x_sq = _Mul(x, x);
-  _DataF result = a11;
+  _Data const x_sq = _Mul(x, x);
+  _Data result = a11;
   /* JPB WIP fmadd */
-  result = _Add(_Mul(x_sq, result), a9);
-  result = _Add(_Mul(x_sq, result), a7);
-  result = _Add(_Mul(x_sq, result), a5);
-  result = _Add(_Mul(x_sq, result), a3);
-  result = _Add(_Mul(x_sq, result), a1);
+  result                = _Add(_Mul(x_sq, result), a9);
+  result                = _Add(_Mul(x_sq, result), a7);
+  result                = _Add(_Mul(x_sq, result), a5);
+  result                = _Add(_Mul(x_sq, result), a3);
+  result                = _Add(_Mul(x_sq, result), a1);
 
   return _Mul(x, result);
 }
 
-static __forceinline _DataF FastATan2( _DataF y, _DataF x )
+static __forceinline _Data FastATan2(_Data y, _Data x)
 {
   /* Not bitwise compatible with vl_fast_atan2_*/
-  _DataF const vPi = _Set(M_PI);
-  _DataF const vPi2 = _Set(M_PI_2);
-  _DataF const vAbsMask = _CastFI(_SetI(0x7FFFFFFF ));
-  _DataF const vSignMask = _CastFI(_SetI(0x80000000));
-  _DataF const vSwapMask = _CmpGT(
+  _Data const vPi      = _Set(M_PI);
+  _Data const vPi2     = _Set(M_PI_2);
+  _Data const vAbsMask = _CastFI(_SetI(0x7FFFFFFF));
+  _Data const vSignMask
+                       = _CastFI(_SetI(0x80000000));
+  _Data const vSwapMask
+                       = _CmpGT(
     _And( y, vAbsMask ),  /* |y| */
     _And( x, vAbsMask )   /* |x| */
   );
   /* pick the lowest between |y| and |x| for each number */
-  _DataF const vLow = _Blend(y, x, vSwapMask);
-  _DataF const vHigh = _Blend(x, y, vSwapMask);
-  _DataF const vAtan = _Div(
+  _Data const vLow     = _Blend(y, x, vSwapMask);
+  _Data const vHigh    = _Blend(x, y, vSwapMask);
+  _Data const vAtan    = _Div(
     vLow,
     vHigh
   );
 
-  _DataF vResult = FastAtan( vAtan );
+  _Data vResult = FastAtan(vAtan);
 
   vResult = _Blend(
     vResult,
@@ -351,10 +364,10 @@ static __forceinline _DataF FastATan2( _DataF y, _DataF x )
       _Or(vPi2, _And(vAtan, vSignMask)),
       vResult
     ),
-      vSwapMask
+    vSwapMask
   );
 
-  _DataF const vXSignMask = _CastFI(_ShiftRI( _CastIF( x ), 31));
+  _Data const vXSignMask = _CastFI(_ShiftRI(_CastIF(x), 31));
 
   return _Add(
     _And(
@@ -369,91 +382,105 @@ static __forceinline _DataF FastATan2( _DataF y, _DataF x )
 #define VL_PI 3.141592653589793
 #endif
 
-static __forceinline _DataF Mod2PILimited( _DataF x )
+static __forceinline _Data Mod2PILimited(_Data x)
 {
   // Perform a limited mod on the components of x.
   // x is in the range [-4PI, +4PI]
-  _DataF const vTwoPI   = _Set(2 * VL_PI);
-  _DataF const vZero    = _Set(0.f);
+  _Data const vTwoPI   = _Set(2 * VL_PI);
+  _Data const vZero    = _Set(0.f);
 
-  _DataF needsReduction = _CmpGE(x, vTwoPI);
-  _DataF vOffset        = _And(needsReduction, vTwoPI);  // 0.0 or 2*Pi
-  _DataF const vResult  = _Sub(x, vOffset);
+  _Data needsReduction = _CmpGE(x, vTwoPI);
+  _Data vOffset        = _And(needsReduction, vTwoPI);  /* 0.0 or 2*Pi */
+  _Data const vResult  = _Sub(x, vOffset);
 
-  needsReduction        = _CmpLT(x, vZero);
-  vOffset               = _And(needsReduction, vTwoPI);  // 0.0 or 2*Pi
+  needsReduction       = _CmpLT(x, vZero);
+  vOffset              = _And(needsReduction, vTwoPI);  /* 0.0 or 2*Pi */
 
   return _Add(vResult, vOffset);
 }
 
-static __forceinline _DataF FastAbs( _DataF x )
+static __forceinline _Data FastAbs(_Data x)
 {
-  _DataF vResult        = _Set(0.f);
+  _Data vResult         = _Set(0.f);
   vResult               = _Sub(vResult, x);
 
   return _Max(vResult, x);
 }
 
-static __forceinline _DataF GradCalc2( _DataF y, _DataF x )
+static __forceinline _Data GradCalc2(_Data y, _Data x)
 {
   /* An SSE2-comparable variant of vl_mod_2pi_f(vl_fast_atan2_f (gy, gx) + 2*VL_PI) */
-  _DataF const vTwoPI   = _Set(2 * VL_PI);
-  _DataF const vZero    = _Set(0);
+  _Data const vTwoPI   = _Set(2 * VL_PI);
+  _Data const vZero    = _Set(0);
 
-  _DataF const vC3      = _Set(0.1821f);
-  _DataF const vC1      = _Set(0.9675f);
-  _DataF const vAbsY    = FastAbs(_Add(y, _Set(1.19209290E-07F)));
+  _Data const vC3      = _Set(0.1821f);
+  _Data const vC1      = _Set(0.9675f);
+  _Data const vAbsY    = FastAbs(_Add(y, _Set(1.19209290E-07F)));
   
-  _DataF const vHighBit = _CastFI(_SetI( 0x80000000 ));
+  _Data const vHighBit = _CastFI(_SetI(0x80000000));
 
-  _DataF const vNum     = _Sub(x, _Or(vAbsY, _And(x, vHighBit)));
-  _DataF const vDen     = _Add(vAbsY, _Xor(x, _And(x, vHighBit)));
-  _DataF vAngle         = Blend( _Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
-  _DataF const vR       = _Div(vNum, vDen);
-  vAngle                = _Add(
-                             vAngle,
-                             _Mul(_Sub(_Mul(vC3, _Mul(vR, vR)), vC1), vR)
-                          );
+  _Data const vNum     = _Sub(x, _Or(vAbsY, _And(x, vHighBit)));
+  _Data const vDen     = _Add(vAbsY, _Xor(x, _And(x, vHighBit)));
+  _Data vAngle         = Blend(_Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
+  _Data const vR       = _Div(vNum, vDen);
+  vAngle               = _Add(
+                            vAngle,
+                            _Mul(_Sub(_Mul(vC3, _Mul(vR, vR)), vC1), vR)
+                         );
 
-  _DataF const atan2    = _Xor(vAngle, _And(y, vHighBit));
+  _Data const atan2    = _Xor(vAngle, _And(y, vHighBit));
 
   return Mod2PILimited(_Add(atan2, vTwoPI));
 }
 
-static __forceinline float Mod2PILimitedS( float x )
+static __forceinline float Mod2PILimitedS(float x)
 {
-  _DataF const vTmp = Mod2PILimited(_Set( x ));
+  _Data const vTmp = Mod2PILimited(_Set(x));
   return _vFirst( vTmp );
 }
 
-static __forceinline _DataF Floor(_DataF x)
+/* https://gist.github.com/mmozeiko/56db3df14ab380152d6875383d0f4afd */
+static __forceinline _Data Floor(_Data x)
 {
+#ifdef __SSE4_1__
+  return _Floor(x);
+#else
   _DataI const v0       = _SetI(0);
   _DataI const v1       = _CmpEQI(v0, v0);
   _DataI const ji       = _ShiftRU(v1, 25);
   _DataI const tmp      = _ShiftLI(ji, 23); // I edited this (Added tmp) not sure about it
-  _DataF j              = _CastFI(tmp); //create vector 1.0f // I edited this not sure about it
+  _Data j               = _CastFI(tmp); //create vector 1.0f // I edited this not sure about it
   _DataI const i        = _TruncateIF(x);
-  _DataF const fi       = _ConvertFI(i);
-  _DataF const igx      = _CmpGT(fi, x);
+  _Data const fi        = _ConvertFI(i);
+  _Data const igx       = _CmpGT(fi, x);
   j                     = _And(igx, j);
-  
+
   return _Sub(fi, j);
+#endif
 }
 
-static __forceinline _DataI FastMod8( _DataI xmm3 )
+static __forceinline int AllZerosI(_DataI x)
+{
+#ifdef __SSE4_1__
+  return _mm_testz_si128(x, x);
+#else
+  return _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128())) == 0xFFFF;
+#endif
+}
+
+static __forceinline _DataI FastMod8(_DataI x)
 {
   /* This a -signed- mod 8
    * x % 2n == x < 0 ? x | ~(2n - 1) : x & (2n - 1)
    * x % 8 ==  x < 0 ? x | ~(4-1) : x & 3 */
 
-  _DataI xmm2 = _SetI( 7 );
-  _DataI vZero = _SetI( 0 );
-  _DataI xmm1 = _CmpGTI( vZero, xmm3 );
-  _DataI xmm0 = xmm3;
-  xmm1 = _AndI( xmm1, xmm2 );
-  xmm0 = _AddI( xmm0, xmm1 );
-  xmm0 = _AndI( xmm0, xmm2 );
+  _DataI xmm2           = _SetI(7);
+  _DataI vZero          = _SetI(0);
+  _DataI xmm1           = _CmpGTI(vZero, x);
+  _DataI xmm0           = x;
+  xmm1                  = _AndI(xmm1, xmm2);
+  xmm0                  = _AddI(xmm0, xmm1);
+  xmm0                  = _AndI(xmm0, xmm2);
 
   return _SubI( xmm0, xmm1 );
   /*

@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "P2PUtils.h"
+
 #include "openMVG/numeric/eigen_alias_definition.hpp"
 #include "openMVG/system/logger.hpp"
 
@@ -142,6 +144,28 @@ protected:
 };
 
 /// Read feats from file
+#if BINARY_FEATURES
+template<typename FeaturesT>
+static bool loadFeatsFromBinFile(
+  const std::string & sfileNameFeats,
+  FeaturesT & vec_feat)
+{
+  vec_feat.clear();
+
+  std::ifstream fileIn(sfileNameFeats.c_str(), std::ios::in | std::ios::binary);
+  if (!fileIn.is_open())
+      return false;
+  std::size_t numFeats = 0;
+  fileIn.read(reinterpret_cast<char*>(&numFeats), sizeof(numFeats));
+  vec_feat.resize(numFeats);
+  for (auto & it :vec_feat) {
+      fileIn.read(reinterpret_cast<char*>(&it),sizeof(it));
+  }
+  const bool bOk = !fileIn.bad();
+  fileIn.close();
+  return bOk;
+}
+#else
 template<typename FeaturesT>
 static bool loadFeatsFromFile(
   const std::string & sfileNameFeats,
@@ -162,8 +186,28 @@ static bool loadFeatsFromFile(
   fileIn.close();
   return bOk;
 }
+#endif
 
 /// Write feats to file
+#if BINARY_FEATURES
+template<typename FeaturesT >
+static bool saveFeatsToBinFile(
+  const std::string & sfileNameFeats,
+  FeaturesT & vec_feat)
+{
+  std::ofstream file(sfileNameFeats.c_str(), std::ios::out | std::ios::binary);
+  if (!file.is_open())
+    return false;
+  const std::size_t numFeats = vec_feat.size();
+  file.write((const char*) &numFeats,  sizeof(numFeats));
+  for (const auto& iter : vec_feat) {
+      file.write((const char*) &iter, sizeof(iter));
+  }
+  const bool bOk = file.good();
+  file.close();
+  return bOk;
+}
+#else
 template<typename FeaturesT >
 static bool saveFeatsToFile(
   const std::string & sfileNameFeats,
@@ -178,6 +222,7 @@ static bool saveFeatsToFile(
   file.close();
   return bOk;
 }
+#endif
 
 /// Export point feature based vector to a matrix [(x,y)'T, (x,y)'T]
 template<typename FeaturesT>
