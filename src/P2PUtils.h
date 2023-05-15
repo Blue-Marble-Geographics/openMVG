@@ -245,8 +245,6 @@ static __forceinline float fastExp3S(float x)  // cubic spline approximation
 static __forceinline _Data FastExp(_Data x)
 {
   /* https://stackoverflow.com/questions/47025373/fastest-implementation-of-the-natural-exponential-function-using-sse */
-static __forceinline _DataF FastExp( _DataF x )
-{
 #if (FAST_EXP_VARIANT ==  USE_FASTER_EXP)
     /* max. rel. error = 3.55959567e-2 on [-87.33654, 88.72283] */
     _Data const a = _Set( 12102203.0f ); /* (1 << 23) / log(2) */
