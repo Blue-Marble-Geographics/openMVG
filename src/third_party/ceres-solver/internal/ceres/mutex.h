@@ -118,7 +118,7 @@
 #   define NOMINMAX
 # endif
 # include <windows.h>
-  typedef CRITICAL_SECTION MutexType;
+  typedef SRWLOCK MutexType;
 #elif defined(CERES_HAVE_PTHREAD) && defined(CERES_HAVE_RWLOCK)
   // Needed for pthread_rwlock_*.  If it causes problems, you could take it
   // out, but then you'd have to unset CERES_HAVE_RWLOCK (at least on linux --
@@ -177,9 +177,6 @@ class Mutex {
   // We want to make sure that the compiler sets is_safe_ to true only
   // when we tell it to, and never makes assumptions is_safe_ is
   // always true.  volatile is the most reliable way to do that.
-  // JPB WIP BUG volatile bool is_safe_;
-
-  // JPB WIP BUG inline void SetIsSafe() { is_safe_ = true; }
 
   // Catch the error of writing Mutex when intending MutexLock.
   Mutex(Mutex* /*ignored*/) {}
@@ -213,10 +210,10 @@ void Mutex::ReaderUnlock() { assert(mutex_-- > 0); }
 
 #elif defined(_WIN32) || defined(__CYGWIN32__) || defined(__CYGWIN64__)
 
-Mutex::Mutex()             { InitializeCriticalSectionAndSpinCount(&mutex_, 20); /* JPB WIP BUG SetIsSafe(); */ }
-Mutex::~Mutex()            { DeleteCriticalSection(&mutex_); }
-void Mutex::Lock()         { /* JPB WIP BUG if (is_safe_) */ EnterCriticalSection(&mutex_); }
-void Mutex::Unlock()       { /* JPB WIP BUG if (is_safe_) */ LeaveCriticalSection(&mutex_); }
+Mutex::Mutex()             { InitializeSRWLock(&mutex_); }
+Mutex::~Mutex()            { }
+void Mutex::Lock()         { AcquireSRWLockExclusive(&mutex_); }
+void Mutex::Unlock()       { ReleaseSRWLockExclusive(&mutex_); }
 #ifdef GMUTEX_TRYLOCK
 bool Mutex::TryLock()      { return is_safe_ ?
                                  TryEnterCriticalSection(&mutex_) != 0 : true; }
