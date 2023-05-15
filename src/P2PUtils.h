@@ -10,9 +10,9 @@
 /* Potentially faster, but will reorder generated keypoints and make debugging more difficult. */
 #define PARALLEL_KEYPOINT_GENERATION (1)
 
-#define FAST_SIFT_DETECT             (1) /* Default behavior.  No error loss. */
-#define FAST_SIFT_GRADIENT_UPDATE    (1) /* Faster, adds insignificant error. */
-#define FAST_SIFT_CALC_KEYPOINTS     (1) /* Faster with ~1% error on 1% of the output */
+#define FAST_SIFT_DETECT             (0) /* Default behavior.  No error loss. */
+#define FAST_SIFT_GRADIENT_UPDATE    (0) /* Faster, adds insignificant error. */
+#define FAST_SIFT_CALC_KEYPOINTS     (0) /* Faster with ~1% error on 1% of the output */
 #define FAST_SIFT_CALC_KEYPOINT_ORIENTATIONS (0)
 #define    NO_FAST_EXP               (0)
 #define    USE_FAST_EXP              (1)
