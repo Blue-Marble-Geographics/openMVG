@@ -2576,7 +2576,7 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
       _DataI vYBounded = _AndI(_CmpGTI(vIBiny, vNBPN_2_1), _CmpLTI(vIBiny, vNBP_2));
       _DataI vYNextBounded = _AndI(_CmpGTI(vINextBiny, vNBPN_2_1), _CmpLTI(vINextBiny, vNBP_2));
 
-      /* Immediately reject unbounded groups verticaly */
+      /* Immediately reject unbounded groups vertically */
       if (AllZerosI(_OrI(vYBounded, vYNextBounded)))
         continue;
 
