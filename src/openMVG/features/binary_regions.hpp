@@ -70,7 +70,7 @@ public:
     const std::string& sfileNameDescs) const override
   {
 #if BINARY_FEATURES
-      return saveFeatsToBinFile(sfileNameFeats, vec_feats_)
+    return saveFeatsToBinFile(sfileNameFeats, vec_feats_)
           & saveDescsToBinFile(sfileNameDescs, vec_descs_);
 #else
     return saveFeatsToFile(sfileNameFeats, vec_feats_)
