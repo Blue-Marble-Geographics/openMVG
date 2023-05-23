@@ -52,7 +52,7 @@ PartitionedMatrixView(
   const CompressedRowBlockStructure* bs = matrix_.block_structure();
   CHECK_NOTNULL(bs);
 
-  num_col_blocks_f_ = bs->cols.size() - num_col_blocks_e_;
+  num_col_blocks_f_ = bs->col_sizes.size() - num_col_blocks_e_;
 
   // Compute the number of row blocks in E. The number of row blocks
   // in E maybe less than the number of row blocks in the input matrix
@@ -71,12 +71,12 @@ PartitionedMatrixView(
   num_cols_e_ = 0;
   num_cols_f_ = 0;
 
-  for (int c = 0; c < bs->cols.size(); ++c) {
-    const Block& block = bs->cols[c];
+  for (int c = 0; c < bs->col_sizes.size(); ++c) {
+    const int block_size = bs->col_sizes[c];
     if (c < num_col_blocks_e_) {
-      num_cols_e_ += block.size;
+      num_cols_e_ += block_size;
     } else {
-      num_cols_f_ += block.size;
+      num_cols_f_ += block_size;
     }
   }
 
@@ -107,8 +107,8 @@ RightMultiplyE(const double* x, double* y) const {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
     const int col_block_id = cell.block_id;
-    const int col_block_pos = bs->cols[col_block_id].position;
-    const int col_block_size = bs->cols[col_block_id].size;
+    const int col_block_pos = bs->col_positions[col_block_id];
+    const int col_block_size = bs->col_sizes[col_block_id];
     MatrixVectorMultiply<kRowBlockSize, kEBlockSize, 1>(
         values + cell.position, row_block_size, col_block_size,
         x + col_block_pos,
@@ -134,8 +134,8 @@ RightMultiplyF(const double* x, double* y) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 1; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_pos = bs->cols[col_block_id].position;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_pos = bs->col_positions[col_block_id];
+      const int col_block_size = bs->col_sizes[col_block_id];
       MatrixVectorMultiply<kRowBlockSize, kFBlockSize, 1>(
           values + cells[c].position, row_block_size, col_block_size,
           x + col_block_pos - num_cols_e_,
@@ -149,8 +149,8 @@ RightMultiplyF(const double* x, double* y) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 0; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_pos = bs->cols[col_block_id].position;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_pos = bs->col_positions[col_block_id];
+      const int col_block_size = bs->col_sizes[col_block_id];
       MatrixVectorMultiply<Eigen::Dynamic, Eigen::Dynamic, 1>(
           values + cells[c].position, row_block_size, col_block_size,
           x + col_block_pos - num_cols_e_,
@@ -173,8 +173,8 @@ LeftMultiplyE(const double* x, double* y) const {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
     const int col_block_id = cell.block_id;
-    const int col_block_pos = bs->cols[col_block_id].position;
-    const int col_block_size = bs->cols[col_block_id].size;
+    const int col_block_pos = bs->col_positions[col_block_id];
+    const int col_block_size = bs->col_sizes[col_block_id];
     MatrixTransposeVectorMultiply<kRowBlockSize, kEBlockSize, 1>(
         values + cell.position, row_block_size, col_block_size,
         x + row_block_pos,
@@ -200,8 +200,8 @@ LeftMultiplyF(const double* x, double* y) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 1; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_pos = bs->cols[col_block_id].position;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_pos = bs->col_positions[col_block_id];
+      const int col_block_size = bs->col_sizes[col_block_id];
       MatrixTransposeVectorMultiply<kRowBlockSize, kFBlockSize, 1>(
         values + cells[c].position, row_block_size, col_block_size,
         x + row_block_pos,
@@ -215,8 +215,8 @@ LeftMultiplyF(const double* x, double* y) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 0; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_pos = bs->cols[col_block_id].position;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_pos = bs->col_positions[col_block_id];
+      const int col_block_size = bs->col_sizes[col_block_id];
       MatrixTransposeVectorMultiply<Eigen::Dynamic, Eigen::Dynamic, 1>(
         values + cells[c].position, row_block_size, col_block_size,
         x + row_block_pos,
@@ -244,23 +244,27 @@ CreateBlockDiagonalMatrixLayout(int start_col_block, int end_col_block) const {
   // Iterate over the column blocks, creating a new diagonal block for
   // each column block.
   for (int c = start_col_block; c < end_col_block; ++c) {
-    const Block& block = bs->cols[c];
-    block_diagonal_structure->cols.push_back(Block());
-    Block& diagonal_block = block_diagonal_structure->cols.back();
-    diagonal_block.size = block.size;
-    diagonal_block.position = block_position;
+    block_diagonal_structure->col_sizes.push_back(-1);
+    block_diagonal_structure->col_positions.push_back(-1);
+
+    auto& diagonal_block_size = block_diagonal_structure->col_sizes.back();
+    auto& diagonal_block_position2 = block_diagonal_structure->col_positions.back();
+
+    diagonal_block_size = bs->col_sizes[c];
+    diagonal_block_position2 = bs->col_positions[c];
 
     block_diagonal_structure->rows.push_back(CompressedRow());
     CompressedRow& row = block_diagonal_structure->rows.back();
-    row.block = diagonal_block;
+    row.block.position = diagonal_block_position2;
+    row.block.size = diagonal_block_size;
 
     row.cells.push_back(Cell());
     Cell& cell = row.cells.back();
     cell.block_id = c - start_col_block;
     cell.position = diagonal_cell_position;
 
-    block_position += block.size;
-    diagonal_cell_position += block.size * block.size;
+    block_position += diagonal_block_size;
+    diagonal_cell_position += diagonal_block_size * diagonal_block_size;
   }
 
   // Build a BlockSparseMatrix with the just computed block
@@ -309,7 +313,7 @@ UpdateBlockDiagonalEtE(
     const Cell& cell = bs->rows[r].cells[0];
     const int row_block_size = bs->rows[r].block.size;
     const int block_id = cell.block_id;
-    const int col_block_size = bs->cols[block_id].size;
+    const int col_block_size = bs->col_sizes[block_id];
     const int cell_position =
         block_diagonal_structure->rows[block_id].cells[0].position;
 
@@ -342,7 +346,7 @@ UpdateBlockDiagonalFtF(BlockSparseMatrix* block_diagonal) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 1; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_size = bs->col_sizes[col_block_id];
       const int diagonal_block_id = col_block_id - num_col_blocks_e_;
       const int cell_position =
           block_diagonal_structure->rows[diagonal_block_id].cells[0].position;
@@ -361,7 +365,7 @@ UpdateBlockDiagonalFtF(BlockSparseMatrix* block_diagonal) const {
     const std::vector<Cell>& cells = bs->rows[r].cells;
     for (int c = 0; c < cells.size(); ++c) {
       const int col_block_id = cells[c].block_id;
-      const int col_block_size = bs->cols[col_block_id].size;
+      const int col_block_size = bs->col_sizes[col_block_id];
       const int diagonal_block_id = col_block_id - num_col_blocks_e_;
       const int cell_position =
           block_diagonal_structure->rows[diagonal_block_id].cells[0].position;

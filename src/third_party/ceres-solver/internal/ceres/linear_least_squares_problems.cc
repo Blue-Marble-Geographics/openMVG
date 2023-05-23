@@ -300,9 +300,8 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem2() {
   scoped_array<double> values(new double[num_rows * num_cols]);
 
   for (int c = 0; c < num_cols; ++c) {
-    bs->cols.push_back(Block());
-    bs->cols.back().size = 1;
-    bs->cols.back().position = c;
+    bs->col_sizes.push_back(1);
+    bs->col_positions.push_back(c);
   }
 
   int nnz = 0;
@@ -434,9 +433,8 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem3() {
   scoped_array<double> values(new double[num_rows * num_cols]);
 
   for (int c = 0; c < num_cols; ++c) {
-    bs->cols.push_back(Block());
-    bs->cols.back().size = 1;
-    bs->cols.back().position = c;
+    bs->col_sizes.back() = 1;
+    bs->col_positions.back() = c;
   }
 
   int nnz = 0;
@@ -541,17 +539,14 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem4() {
   scoped_array<double> values(new double[num_rows * num_cols]);
 
   // Column block structure
-  bs->cols.push_back(Block());
-  bs->cols.back().size = 2;
-  bs->cols.back().position = 0;
+  bs->col_sizes.back() = 2;
+  bs->col_positions.back() = 0;
 
-  bs->cols.push_back(Block());
-  bs->cols.back().size = 3;
-  bs->cols.back().position = 2;
+  bs->col_sizes.back() = 3;
+  bs->col_positions.back() = 2;
 
-  bs->cols.push_back(Block());
-  bs->cols.back().size = 2;
-  bs->cols.back().position = 5;
+  bs->col_sizes.back() = 2;
+  bs->col_positions.back() = 5;
 
   int nnz = 0;
 

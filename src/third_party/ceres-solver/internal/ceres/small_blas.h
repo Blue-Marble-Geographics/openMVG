@@ -35,6 +35,7 @@
 #ifndef CERES_INTERNAL_SMALL_BLAS_H_
 #define CERES_INTERNAL_SMALL_BLAS_H_
 
+#include "ceres/block_random_access_sparse_matrix.h"
 #include "ceres/internal/port.h"
 #include "ceres/internal/eigen.h"
 #include "glog/logging.h"
@@ -42,6 +43,18 @@
 
 namespace ceres {
 namespace internal {
+
+struct SmallBiasHelper
+{
+  const double* __restrict A_;
+  int num_row_a_;
+  int num_col_a_;
+  const double* __restrict B_;
+  int num_row_b_;
+  int num_col_b_;
+  double* __restrict C_;
+  CellInfoHelper cih_; // start_row_c, start_col_c, row_stride_c, col_stride_c
+};
 
 // The following three macros are used to share code and reduce
 // template junk across the various GEMM variants.
@@ -54,6 +67,24 @@ namespace internal {
                    const int num_row_b,                                 \
                    const int num_col_b,                                 \
                    double* C,                                           \
+                   const int start_row_c,                               \
+                   const int start_col_c,                               \
+                   const int row_stride_c,                              \
+                   const int col_stride_c)
+
+#define CERES_GEMM2_BEGIN(name)                                          \
+  template<int kRowA, int kColA, int kRowB, int kColB, int kOperation>  \
+  inline void name(const SmallBiasHelper& sbh)
+
+#define CERES_GEMM_BEGIN_NO_ALIAS(name)                                 \
+  template<int kRowA, int kColA, int kRowB, int kColB, int kOperation>  \
+  inline void name(const double* __restrict A,                          \
+                   const int num_row_a,                                 \
+                   const int num_col_a,                                 \
+                   const double* __restrict B,                          \
+                   const int num_row_b,                                 \
+                   const int num_col_b,                                 \
+                   double* __restrict C,                                \
                    const int start_row_c,                               \
                    const int start_col_c,                               \
                    const int row_stride_c,                              \
@@ -77,6 +108,24 @@ namespace internal {
   const int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : num_row_b);  \
   const int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : num_col_b);
 
+#define CERES_GEMM2_NAIVE_HEADER                                             \
+  DCHECK_GT(sbh.num_row_a_, 0);                                              \
+  DCHECK_GT(sbh.num_col_a_, 0);                                              \
+  DCHECK_GT(sbh.num_row_b_, 0);                                              \
+  DCHECK_GT(sbh.num_col_b_, 0);                                              \
+  DCHECK_GE(sbh.cih_.r_, 0);                                                  \
+  DCHECK_GE(sbh.cih_.c_, 0);                                                  \
+  DCHECK_GT(sbh.cih_.row_stride_, 0);                                         \
+  DCHECK_GT(sbh.cih_.col_stride_, 0);                                         \
+  DCHECK((kRowA == Eigen::Dynamic) || (kRowA == sbh.num_row_a_));            \
+  DCHECK((kColA == Eigen::Dynamic) || (kColA == sbh.num_col_a_));            \
+  DCHECK((kRowB == Eigen::Dynamic) || (kRowB == sbh.num_row_b_));            \
+  DCHECK((kColB == Eigen::Dynamic) || (kColB == sbh.num_col_b_));            \
+  const int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : sbh.num_row_a_);  \
+  const int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : sbh.num_col_a_);  \
+  const int NUM_ROW_B = (kRowB != Eigen::Dynamic ? kRowB : sbh.num_row_b_);  \
+  const int NUM_COL_B = (kColB != Eigen::Dynamic ? kColB : sbh.num_col_b_);
+
 #define CERES_GEMM_EIGEN_HEADER                                         \
   const typename EigenTypes<kRowA, kColA>::ConstMatrixRef               \
   Aref(A, num_row_a, num_col_a);                                        \
@@ -84,11 +133,21 @@ namespace internal {
   Bref(B, num_row_b, num_col_b);                                        \
   MatrixRef Cref(C, row_stride_c, col_stride_c);                        \
 
+#define CERES_GEMM2_EIGEN_HEADER                                        \
+  const typename EigenTypes<kRowA, kColA>::ConstMatrixRef               \
+  Aref(sbh.A_, sbh.num_row_a_, sbh.num_col_a_);                         \
+  const typename EigenTypes<kRowB, kColB>::ConstMatrixRef               \
+  Bref(sbh.B_, sbh.num_row_b_, sbh.num_col_b_);                         \
+  MatrixRef Cref(sbh.C_, sbh.cih_.row_stride_, sbh.cih_.col_stride_);     \
+
 #define CERES_CALL_GEMM(name)                                           \
   name<kRowA, kColA, kRowB, kColB, kOperation>(                         \
       A, num_row_a, num_col_a,                                          \
       B, num_row_b, num_col_b,                                          \
       C, start_row_c, start_col_c, row_stride_c, col_stride_c);
+
+#define CERES_CALL2_GEMM(name)                   \
+  name<kRowA, kColA, kRowB, kColB, kOperation>(sbh);
 
 #define CERES_GEMM_STORE_SINGLE(p, index, value) \
   if (kOperation > 0) {                          \
@@ -173,6 +232,20 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyEigen) {
   }
 }
 
+CERES_GEMM2_BEGIN(MatrixMatrixMultiplyEigen2) {
+  CERES_GEMM2_EIGEN_HEADER
+    Eigen::Block<MatrixRef, kRowA, kColB>
+    block(Cref, sbh.cih_.r_, sbh.cih_.c_, sbh.num_row_a_, sbh.num_col_b_);
+
+  if (kOperation > 0) {
+    block.noalias() += Aref * Bref;
+  } else if (kOperation < 0) {
+    block.noalias() -= Aref * Bref;
+  } else {
+    block.noalias() = Aref * Bref;
+  }
+}
+
 CERES_GEMM_BEGIN(MatrixMatrixMultiplyNaive) {
   CERES_GEMM_NAIVE_HEADER
   DCHECK_EQ(NUM_COL_A, NUM_ROW_B);
@@ -242,6 +315,79 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyNaive) {
   }
 }
 
+CERES_GEMM2_BEGIN(MatrixMatrixMultiplyNaive2) {
+  CERES_GEMM2_NAIVE_HEADER
+    DCHECK_EQ(NUM_COL_A, NUM_ROW_B);
+
+  const int NUM_ROW_C = NUM_ROW_A;
+  const int NUM_COL_C = NUM_COL_B;
+  DCHECK_LE(sbh.cih_.r_ + NUM_ROW_C, sbh.cih_.row_stride_);
+  DCHECK_LE(sbh.cih_.c_ + NUM_COL_C, sbh.cih_.col_stride_);
+  const int span = 4;
+
+  const double* A = sbh.A_;
+  const double* B = sbh.B_;
+  double* C = sbh.C_;
+
+  // Calculate the remainder part first.
+
+  // Process the last odd column if present.
+  if (NUM_COL_C & 1) {
+    int col = NUM_COL_C - 1;
+    const double* pa = &A[0];
+    for (int row = 0; row < NUM_ROW_C; ++row, pa += NUM_COL_A) {
+      const double* pb = &B[col];
+      double tmp = 0.0;
+      for (int k = 0; k < NUM_COL_A; ++k, pb += NUM_COL_B) {
+        tmp += pa[k] * pb[0];
+      }
+
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      CERES_GEMM_STORE_SINGLE(C, index, tmp);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C == 1) {
+      return;
+    }
+  }
+
+  // Process the couple columns in remainder if present.
+  if (NUM_COL_C & 2) {
+    int col = NUM_COL_C & (~(span - 1));
+    const double* pa = &A[0];
+    for (int row = 0; row < NUM_ROW_C; ++row, pa += NUM_COL_A) {
+      const double* pb = &B[col];
+      double tmp1 = 0.0, tmp2 = 0.0;
+      for (int k = 0; k < NUM_COL_A; ++k, pb += NUM_COL_B) {
+        double av = pa[k];
+        tmp1 += av * pb[0];
+        tmp2 += av * pb[1];
+      }
+
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      CERES_GEMM_STORE_PAIR(C, index, tmp1, tmp2);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C < span) {
+      return;
+    }
+  }
+
+  // Calculate the main part with multiples of 4.
+  int col_m = NUM_COL_C & (~(span - 1));
+  for (int col = 0; col < col_m; col += span) {
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      // clang-format off
+      MMM_mat1x4(NUM_COL_A, &A[row * NUM_COL_A],
+        &B[col], NUM_COL_B, &C[index], kOperation);
+      // clang-format on
+    }
+  }
+}
+
 CERES_GEMM_BEGIN(MatrixMatrixMultiply) {
 #ifdef CERES_NO_CUSTOM_BLAS
 
@@ -260,11 +406,57 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiply) {
 #endif
 }
 
+CERES_GEMM2_BEGIN(MatrixMatrixMultiply2) {
+#ifdef CERES_NO_CUSTOM_BLAS
+
+  CERES_CALL_GEMM(MatrixMatrixMultiplyEigen)
+    return;
+
+#else
+
+  if (kRowA != Eigen::Dynamic && kColA != Eigen::Dynamic &&
+    kRowB != Eigen::Dynamic && kColB != Eigen::Dynamic) {
+    CERES_CALL2_GEMM(MatrixMatrixMultiplyEigen2)
+  } else {
+    CERES_CALL2_GEMM(MatrixMatrixMultiplyNaive2)
+  }
+
+#endif
+}
+
 CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyEigen) {
   CERES_GEMM_EIGEN_HEADER
   Eigen::Block<MatrixRef, kColA, kColB> block(Cref,
                                               start_row_c, start_col_c,
                                               num_col_a, num_col_b);
+  if (kOperation > 0) {
+    block.noalias() += Aref.transpose() * Bref;
+  } else if (kOperation < 0) {
+    block.noalias() -= Aref.transpose() * Bref;
+  } else {
+    block.noalias() = Aref.transpose() * Bref;
+  }
+}
+
+CERES_GEMM2_BEGIN(MatrixTransposeMatrixMultiplyEigen2) {
+  CERES_GEMM2_EIGEN_HEADER
+    Eigen::Block<MatrixRef, kColA, kColB> block(Cref,
+    sbh.cih_.r_, sbh.cih_.c_,
+    sbh.num_col_a_, sbh.num_col_b_);
+  if (kOperation > 0) {
+    block.noalias() += Aref.transpose() * Bref;
+  } else if (kOperation < 0) {
+    block.noalias() -= Aref.transpose() * Bref;
+  } else {
+    block.noalias() = Aref.transpose() * Bref;
+  }
+}
+
+CERES_GEMM_BEGIN_NO_ALIAS(MatrixTransposeMatrixMultiplyEigenNoAlias) {
+  CERES_GEMM_EIGEN_HEADER
+    Eigen::Block<MatrixRef, kColA, kColB> block(Cref,
+    start_row_c, start_col_c,
+    num_col_a, num_col_b);
   if (kOperation > 0) {
     block.noalias() += Aref.transpose() * Bref;
   } else if (kOperation < 0) {
@@ -347,6 +539,156 @@ CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyNaive) {
   }
 }
 
+CERES_GEMM2_BEGIN(MatrixTransposeMatrixMultiplyNaive2) {
+  CERES_GEMM2_NAIVE_HEADER
+    DCHECK_EQ(NUM_ROW_A, NUM_ROW_B);
+
+  const int NUM_ROW_C = NUM_COL_A;
+  const int NUM_COL_C = NUM_COL_B;
+  DCHECK_LE(sbh.cih_.r_ + NUM_ROW_C, sbh.cih_.row_stride_);
+  DCHECK_LE(sbh.cih_.c_ + NUM_COL_C, sbh.cih_.col_stride_);
+  const int span = 4;
+
+  const double* A = sbh.A_;
+  const double* B = sbh.B_;
+  double* C = sbh.C_;
+
+  // Process the remainder part first.
+
+  // Process the last odd column if present.
+  if (NUM_COL_C & 1) {
+    int col = NUM_COL_C - 1;
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const double* pa = &A[row];
+      const double* pb = &B[col];
+      double tmp = 0.0;
+      for (int k = 0; k < NUM_ROW_A; ++k) {
+        tmp += pa[0] * pb[0];
+        pa += NUM_COL_A;
+        pb += NUM_COL_B;
+      }
+
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      CERES_GEMM_STORE_SINGLE(C, index, tmp);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C == 1) {
+      return;
+    }
+  }
+
+  // Process the couple columns in remainder if present.
+  if (NUM_COL_C & 2) {
+    int col = NUM_COL_C & (~(span - 1));
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const double* pa = &A[row];
+      const double* pb = &B[col];
+      double tmp1 = 0.0, tmp2 = 0.0;
+      for (int k = 0; k < NUM_ROW_A; ++k) {
+        double av = *pa;
+        tmp1 += av * pb[0];
+        tmp2 += av * pb[1];
+        pa += NUM_COL_A;
+        pb += NUM_COL_B;
+      }
+
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      CERES_GEMM_STORE_PAIR(C, index, tmp1, tmp2);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C < span) {
+      return;
+    }
+  }
+
+  // Process the main part with multiples of 4.
+  int col_m = NUM_COL_C & (~(span - 1));
+  for (int col = 0; col < col_m; col += span) {
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const int index = (row + sbh.cih_.r_) * sbh.cih_.col_stride_ + sbh.cih_.c_ + col;
+      // clang-format off
+      MTM_mat1x4(NUM_ROW_A, &A[row], NUM_COL_A,
+        &B[col], NUM_COL_B, &C[index], kOperation);
+      // clang-format on
+    }
+  }
+}
+
+CERES_GEMM_BEGIN_NO_ALIAS(MatrixTransposeMatrixMultiplyNaiveNoAlias) {
+  CERES_GEMM_NAIVE_HEADER
+    DCHECK_EQ(NUM_ROW_A, NUM_ROW_B);
+
+  const int NUM_ROW_C = NUM_COL_A;
+  const int NUM_COL_C = NUM_COL_B;
+  DCHECK_LE(start_row_c + NUM_ROW_C, row_stride_c);
+  DCHECK_LE(start_col_c + NUM_COL_C, col_stride_c);
+  const int span = 4;
+
+  // Process the remainder part first.
+
+  // Process the last odd column if present.
+  if (NUM_COL_C & 1) {
+    int col = NUM_COL_C - 1;
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const double* pa = &A[row]; // Remember, inherits __restrict
+      const double* pb = &B[col];
+      double tmp = 0.0;
+      for (int k = 0; k < NUM_ROW_A; ++k) {
+        tmp += pa[0] * pb[0];
+        pa += NUM_COL_A;
+        pb += NUM_COL_B;
+      }
+
+      const int index = (row + start_row_c) * col_stride_c + start_col_c + col;
+      CERES_GEMM_STORE_SINGLE(C, index, tmp);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C == 1) {
+      return;
+    }
+  }
+
+  // Process the couple columns in remainder if present.
+  if (NUM_COL_C & 2) {
+    int col = NUM_COL_C & (~(span - 1));
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const double* pa = &A[row];
+      const double* pb = &B[col];
+      double tmp1 = 0.0, tmp2 = 0.0;
+      for (int k = 0; k < NUM_ROW_A; ++k) {
+        double av = *pa;
+        tmp1 += av * pb[0];
+        tmp2 += av * pb[1];
+        pa += NUM_COL_A;
+        pb += NUM_COL_B;
+      }
+
+      const int index = (row + start_row_c) * col_stride_c + start_col_c + col;
+      CERES_GEMM_STORE_PAIR(C, index, tmp1, tmp2);
+    }
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_C < span) {
+      return;
+    }
+  }
+
+  // Process the main part with multiples of 4.
+  int col_m = NUM_COL_C & (~(span - 1));
+  for (int col = 0; col < col_m; col += span) {
+    for (int row = 0; row < NUM_ROW_C; ++row) {
+      const int index = (row + start_row_c) * col_stride_c + start_col_c + col;
+      // clang-format off
+      MTM_mat1x4NoAlias(NUM_ROW_A, &A[row], NUM_COL_A,
+        &B[col], NUM_COL_B, &C[index], kOperation);
+      // clang-format on
+    }
+  }
+}
+
 CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiply) {
 #ifdef CERES_NO_CUSTOM_BLAS
 
@@ -360,6 +702,42 @@ CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiply) {
     CERES_CALL_GEMM(MatrixTransposeMatrixMultiplyEigen)
   } else {
     CERES_CALL_GEMM(MatrixTransposeMatrixMultiplyNaive)
+  }
+
+#endif
+}
+
+CERES_GEMM2_BEGIN(MatrixTransposeMatrixMultiply2) {
+#ifdef CERES_NO_CUSTOM_BLAS
+
+  CERES_CALL2_GEMM(MatrixTransposeMatrixMultiplyEigen2)
+    return;
+
+#else
+
+  if (kRowA != Eigen::Dynamic && kColA != Eigen::Dynamic &&
+    kRowB != Eigen::Dynamic && kColB != Eigen::Dynamic) {
+    CERES_CALL2_GEMM(MatrixTransposeMatrixMultiplyEigen2)
+  } else {
+    CERES_CALL2_GEMM(MatrixTransposeMatrixMultiplyNaive2)
+  }
+
+#endif
+}
+
+CERES_GEMM_BEGIN_NO_ALIAS(MatrixTransposeMatrixMultiplyNoAlias) {
+#ifdef CERES_NO_CUSTOM_BLAS
+
+  CERES_CALL_GEMM(MatrixTransposeMatrixMultiplyEigenNoAlias)
+    return;
+
+#else
+
+  if (kRowA != Eigen::Dynamic && kColA != Eigen::Dynamic &&
+    kRowB != Eigen::Dynamic && kColB != Eigen::Dynamic) {
+    CERES_CALL_GEMM(MatrixTransposeMatrixMultiplyEigenNoAlias)
+  } else {
+    CERES_CALL_GEMM(MatrixTransposeMatrixMultiplyNaiveNoAlias)
   }
 
 #endif
@@ -461,6 +839,90 @@ inline void MatrixVectorMultiply(const double* A,
 #endif  // CERES_NO_CUSTOM_BLAS
 }
 
+template<int kRowA, int kColA, int kOperation>
+inline void MatrixVectorMultiply2(const SmallBiasHelper& sbh) {
+#ifdef CERES_NO_CUSTOM_BLAS
+  throw; // Unsupported
+  const typename EigenTypes<kRowA, kColA>::ConstMatrixRef Aref(
+    A, num_row_a, num_col_a);
+  const typename EigenTypes<kColA>::ConstVectorRef bref(b, num_col_a);
+  typename EigenTypes<kRowA>::VectorRef cref(c, num_row_a);
+
+  // lazyProduct works better than .noalias() for matrix-vector
+  // products.
+  if (kOperation > 0) {
+    cref += Aref.lazyProduct(bref);
+  } else if (kOperation < 0) {
+    cref -= Aref.lazyProduct(bref);
+  } else {
+    cref = Aref.lazyProduct(bref);
+  }
+#else
+
+  DCHECK_GT(sbh.num_row_a_, 0);
+  DCHECK_GT(sbh.num_col_a_, 0);
+  DCHECK((kRowA == Eigen::Dynamic) || (kRowA == sbh.num_row_a_));
+  DCHECK((kColA == Eigen::Dynamic) || (kColA == sbh.num_col_a_));
+
+  const int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : sbh.num_row_a_);
+  const int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : sbh.num_col_a_);
+  const int span = 4;
+
+  // Calculate the remainder part first.
+  const double* A = sbh.A_;
+  const double* b = sbh.B_;
+  double* c = sbh.C_;
+
+  // Process the last odd row if present.
+  if (NUM_ROW_A & 1) {
+    int row = NUM_ROW_A - 1;
+    const double* pa = &A[row * NUM_COL_A];
+    const double* pb = &b[0];
+    double tmp = 0.0;
+    for (int col = 0; col < NUM_COL_A; ++col) {
+      tmp += (*pa++) * (*pb++);
+    }
+    CERES_GEMM_STORE_SINGLE(c, row, tmp);
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_ROW_A == 1) {
+      return;
+    }
+  }
+
+  // Process the couple rows in remainder if present.
+  if (NUM_ROW_A & 2) {
+    int row = NUM_ROW_A & (~(span - 1));
+    const double* pa1 = &A[row * NUM_COL_A];
+    const double* pa2 = pa1 + NUM_COL_A;
+    const double* pb = &b[0];
+    double tmp1 = 0.0, tmp2 = 0.0;
+    for (int col = 0; col < NUM_COL_A; ++col) {
+      double bv = *pb++;
+      tmp1 += *(pa1++) * bv;
+      tmp2 += *(pa2++) * bv;
+    }
+    CERES_GEMM_STORE_PAIR(c, row, tmp1, tmp2);
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_ROW_A < span) {
+      return;
+    }
+  }
+
+  // Calculate the main part with multiples of 4.
+  int row_m = NUM_ROW_A & (~(span - 1));
+  for (int row = 0; row < row_m; row += span) {
+    // clang-format off
+    MVM_mat4x1(NUM_COL_A, &A[row * NUM_COL_A], NUM_COL_A,
+      &b[0], &c[row], kOperation);
+    // clang-format on
+  }
+
+#endif  // CERES_NO_CUSTOM_BLAS
+}
+
+
 // Similar to MatrixVectorMultiply, except that A is transposed, i.e.,
 //
 // c op A' * b;
@@ -544,6 +1006,93 @@ inline void MatrixTransposeVectorMultiply(const double* A,
     // clang-format off
     MTV_mat4x1(NUM_ROW_A, &A[row], NUM_COL_A,
                &b[0], &c[row], kOperation);
+    // clang-format on
+  }
+
+#endif  // CERES_NO_CUSTOM_BLAS
+}
+
+template<int kRowA, int kColA, int kOperation>
+inline void MatrixTransposeVectorMultiply2(const SmallBiasHelper& sbh) {
+#ifdef CERES_NO_CUSTOM_BLAS
+  throw; // Unsupported
+  const typename EigenTypes<kRowA, kColA>::ConstMatrixRef
+    Aref(A, num_row_a, num_col_a);
+  const typename EigenTypes<kRowA>::ConstVectorRef bref(b, num_row_a);
+  typename EigenTypes<kColA>::VectorRef cref(c, num_col_a);
+
+  // lazyProduct works better than .noalias() for matrix-vector
+  // products.
+  if (kOperation > 0) {
+    cref += Aref.transpose().lazyProduct(bref);
+  } else if (kOperation < 0) {
+    cref -= Aref.transpose().lazyProduct(bref);
+  } else {
+    cref = Aref.transpose().lazyProduct(bref);
+  }
+#else
+
+  DCHECK_GT(sbh.num_row_a_, 0);
+  DCHECK_GT(sbh.num_col_a_, 0);
+  DCHECK((kRowA == Eigen::Dynamic) || (kRowA == sbh.num_row_a_));
+  DCHECK((kColA == Eigen::Dynamic) || (kColA == sbh.num_col_a_));
+
+  const int NUM_ROW_A = (kRowA != Eigen::Dynamic ? kRowA : sbh.num_row_a_);
+  const int NUM_COL_A = (kColA != Eigen::Dynamic ? kColA : sbh.num_col_a_);
+  const int span = 4;
+
+  const double* A = sbh.A_;
+  const double* b = sbh.B_;
+  double* c = sbh.C_;
+
+  // Calculate the remainder part first.
+
+  // Process the last odd column if present.
+  if (NUM_COL_A & 1) {
+    int row = NUM_COL_A - 1;
+    const double* pa = &A[row];
+    const double* pb = &b[0];
+    double tmp = 0.0;
+    for (int col = 0; col < NUM_ROW_A; ++col) {
+      tmp += *pa * (*pb++);
+      pa += NUM_COL_A;
+    }
+    CERES_GEMM_STORE_SINGLE(c, row, tmp);
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_A == 1) {
+      return;
+    }
+  }
+
+  // Process the couple columns in remainder if present.
+  if (NUM_COL_A & 2) {
+    int row = NUM_COL_A & (~(span - 1));
+    const double* pa = &A[row];
+    const double* pb = &b[0];
+    double tmp1 = 0.0, tmp2 = 0.0;
+    for (int col = 0; col < NUM_ROW_A; ++col) {
+      // clang-format off
+      double bv = *pb++;
+      tmp1 += *(pa    ) * bv;
+      tmp2 += *(pa + 1) * bv;
+      pa += NUM_COL_A;
+      // clang-format on
+    }
+    CERES_GEMM_STORE_PAIR(c, row, tmp1, tmp2);
+
+    // Return directly for efficiency of extremely small matrix multiply.
+    if (NUM_COL_A < span) {
+      return;
+    }
+  }
+
+  // Calculate the main part with multiples of 4.
+  int row_m = NUM_COL_A & (~(span - 1));
+  for (int row = 0; row < row_m; row += span) {
+    // clang-format off
+    MTV_mat4x1(NUM_ROW_A, &A[row], NUM_COL_A,
+      &b[0], &c[row], kOperation);
     // clang-format on
   }
 
