@@ -11,6 +11,8 @@ This file is part of the VLFeat library and is made available under
 the terms of the BSD license (see the COPYING file).
 */
 
+#include "../../../P2PUtils.h"
+
 #if ! defined(VL_DISABLE_SSE2) & ! defined(__SSE2__)
 #error "Compiling with SSE2 enabled, but no __SSE2__ defined"
 #endif
@@ -27,15 +29,26 @@ the terms of the BSD license (see the COPYING file).
 #define VL_IMOPV_SSE2_INSTANTIATING
 #include "imopv_sse2.c"
 
+#if 0
 #define FLT VL_TYPE_DOUBLE
 #define VL_IMOPV_SSE2_INSTANTIATING
 #include "imopv_sse2.c"
+#endif
 
 /* ---------------------------------------------------------------- */
 /* VL_IMOPV_SSE2_INSTANTIATING */
 #else
 
 #include "float.th"
+
+/* Perform MULT SSE2 fetches simultaneously. */
+#if (VSIZE==4)
+#define MULT (4)
+#elif (VSIZE==8)
+#define MULT (2)
+#else
+#pragma error "Unsupported"
+#endif
 
 /* ---------------------------------------------------------------- */
 void
@@ -55,6 +68,10 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
   double totcol = 0 ;
   double simdcol = 0 ;
 
+  if (zeropad || (!transp)) {
+      return; // "Unsupported.";
+  }
+
   /* let filt point to the last sample of the filter */
   filt += filt_end - filt_begin ;
 
@@ -72,76 +89,87 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
     T const *filti ;
     vl_index stop ;
 
-    if ((x + VSIZE < (signed)src_width) &
-        VALIGNED(src + x) & use_simd)
+    /* Always allow SIMD processing. */
+    if (((x + VSIZE*MULT) < (signed)src_width) 
+       /*& VALIGNED(src + x) & use_simd*/)
     {
       /* ----------------------------------------------  Vectorized */
       for (y = 0 ; y < (signed)src_height ; y += step)  {
-        union {VTYPE v ; T x [VSIZE] ; } acc ;
-        VTYPE v, c ;
+        union {VTYPE v ; T x [VSIZE] ; } acc[MULT];
+        VTYPE v[MULT], c ;
+        VTYPE v2[MULT], c2;
+        VTYPE tmp[MULT];
+        VTYPE tmp2[MULT];
         T const *srci ;
-        acc.v = VSTZ () ;
-        v = VSTZ() ;
+        /* srci2 is always srci + 1 */
+
+        for (int i = 0; i != MULT; ++i) {
+          acc[i].v = v[i] = VSTZ() ;
+        }
 
         filti = filt ;
         stop = filt_end - y ;
         srci = src + x - stop * src_stride ;
 
         if (stop > 0) {
-          if (zeropad) {
-            v = VSTZ () ;
-          } else {
-            v = * (VTYPE*) (src + x) ;
+          for (int i = 0; i != MULT; ++i) {
+            v[i] =_Load(src + x + VSIZE*i) ;
+          }
           }
           while (filti > filt - stop) {
             c = VLD1 (filti--) ;
-            acc.v = VADD (acc.v,  VMUL (v, c)) ;
+          for (int i = 0; i != MULT; ++i) {
+            tmp[i] = VMUL(v[i], c);
+          }
+          for (int i = 0; i != MULT; ++i) {
+            acc[i].v = VADD (acc[i].v, tmp[i]) ;
+          }
             srci += src_stride ;
           }
-        }
 
         stop = filt_end - VL_MAX(filt_begin, y - (signed)src_height + 1) + 1 ;
+
+        /* Rework loop (and below) to reduce add latency. */
         while (filti > filt - stop) {
-          v = * (VTYPE*) srci ;
+          for (int i = 0; i != MULT; ++i) {
+            v[i] =_Load(srci + VSIZE*i) ;
+          }
           c = VLD1 (filti--) ;
-          acc.v = VADD (acc.v, VMUL (v, c)) ;
+          for (int i = 0; i != MULT; ++i) {
+            tmp[i] = VMUL(v[i], c);
+          }
+          for (int i = 0; i != MULT; ++i) {
+            acc[i].v = VADD (acc[i].v,  tmp[i]) ;
+          }
           srci += src_stride ;
         }
-
-        if (zeropad) v = VSTZ () ;
 
         stop = filt_end - filt_begin + 1;
         while (filti > filt - stop) {
           c = VLD1 (filti--) ;
-          acc.v = VADD (acc.v, VMUL (v, c)) ;
+            for (int i = 0; i != MULT; ++i) {
+              tmp[i] = VMUL(v[i], c);
+            }
+            for (int i = 0; i != MULT; ++i) {
+              acc[i].v = VADD (acc[i].v, tmp[i]) ;
+            }
         }
 
-        if (transp) {
-          *dst = acc.x[0] ; dst += dst_stride ;
-          *dst = acc.x[1] ; dst += dst_stride ;
+        for (int i = 0; i != MULT; ++i) {
+          *dst = acc[i].x[0] ; dst += dst_stride ;
+          *dst = acc[i].x[1] ; dst += dst_stride ;
 #if(VSIZE == 4)
-          *dst = acc.x[2] ; dst += dst_stride ;
-          *dst = acc.x[3] ; dst += dst_stride ;
+          *dst = acc[i].x[2] ; dst += dst_stride ;
+          *dst = acc[i].x[3] ; dst += dst_stride ;
 #endif
-          dst += 1 * 1 - VSIZE * dst_stride ;
-        } else {
-          *dst = acc.x[0] ; dst += 1 ;
-          *dst = acc.x[1] ; dst += 1 ;
-#if(VSIZE == 4)
-          *dst = acc.x[2] ; dst += 1 ;
-          *dst = acc.x[3] ; dst += 1 ;
-#endif
-          dst += 1 * dst_stride - VSIZE * 1 ;
         }
+        dst += 1 * 1 - VSIZE*MULT * dst_stride ;
       } /* next y */
-      if (transp) {
-        dst += VSIZE * dst_stride - dheight * 1 ;
-      } else {
-        dst += VSIZE * 1 - dheight * dst_stride ;
-      }
-      x       += VSIZE ;
-      simdcol += VSIZE ;
-      totcol  += VSIZE ;
+
+      dst += VSIZE*MULT * dst_stride - dheight * 1 ;
+      x       += VSIZE*MULT ;
+      simdcol += VSIZE*MULT ;
+      totcol  += VSIZE*MULT ;
     } else {
       /* -------------------------------------------------  Vanilla */
       for (y = 0 ; y < (signed)src_height ; y += step) {
@@ -154,9 +182,6 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
         srci = src + x - stop * src_stride ;
 
         if (stop > 0) {
-          if (zeropad) {
-            v = 0 ;
-          } else {
             v = *(src + x) ;
           }
           while (filti > filt - stop) {
@@ -164,7 +189,6 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
             acc += v * c ;
             srci += src_stride ;
           }
-        }
 
         stop = filt_end - VL_MAX(filt_begin, y - (signed)src_height + 1) + 1 ;
         while (filti > filt - (signed)stop) {
@@ -174,25 +198,15 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
           srci += src_stride ;
         }
 
-        if (zeropad) v = 0 ;
-
         stop = filt_end - filt_begin + 1 ;
         while (filti > filt - stop) {
           c = *filti-- ;
           acc += v * c ;
         }
 
-        if (transp) {
           *dst = acc ; dst += 1 ;
-        } else {
-          *dst = acc ; dst += dst_stride ;
-        }
       } /* next y */
-      if (transp) {
         dst += 1 * dst_stride - dheight * 1 ;
-      } else {
-        dst += 1 * 1 - dheight * dst_stride ;
-      }
       x      += 1 ;
       totcol += 1 ;
     } /* next x */

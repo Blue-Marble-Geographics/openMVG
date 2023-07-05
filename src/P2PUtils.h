@@ -227,6 +227,7 @@ static __forceinline  float FastExpS(float x)
   return cvt.f;
 }
 
+/* https://stackoverflow.com/questions/53872265/how-do-you-process-exp-with-sse2 */
 static __forceinline float fastExp3S(float x)  // cubic spline approximation
 {
   /* https://stackoverflow.com/questions/53872265/how-do-you-process-exp-with-sse2 */
