@@ -689,6 +689,8 @@ Gaussian window size is set to have standard deviation
 
 #define log2(x) (log(x)/VL_LOG_OF_2)
 
+#define REDUCE_MEMORY /* Share buffer space to reduce memory use 25% */
+
 /** ------------------------------------------------------------------
  ** @internal
  ** @brief Fast @f$exp(-x)@f$ approximation
@@ -907,6 +909,21 @@ vl_sift_new (int width, int height,
   f-> s_max   = nlevels + 1 ;
   f-> o_cur   = o_min ;
 
+#ifdef REDUCE_MEMORY
+  const size_t commonSize =
+      sizeof(vl_sift_pix) *
+      max(
+          nel * ( f->s_max - f->s_min ), /* dog */
+          nel * 2 * ( f->s_max - f->s_min ) /* grad */
+      );
+  f-> dog     = vl_malloc(commonSize) ;
+  f-> grad    = f->dog ;
+
+  f-> octave  = vl_malloc (sizeof(vl_sift_pix) * nel
+                            * (f->s_max - f->s_min + 1)  ) ;
+  /* Dog and temp used together, so temp must follow dog. */
+  f-> temp = f->dog + nel * ( f->s_max - f->s_min ) ;
+#else
   f-> temp    = vl_malloc (sizeof(vl_sift_pix) * nel    ) ;
   f-> octave  = vl_malloc (sizeof(vl_sift_pix) * nel
                         * (f->s_max - f->s_min + 1)  ) ;
@@ -914,6 +931,7 @@ vl_sift_new (int width, int height,
                         * (f->s_max - f->s_min    )  ) ;
   f-> grad    = vl_malloc (sizeof(vl_sift_pix) * nel * 2
                         * (f->s_max - f->s_min    )  ) ;
+#endif
 
   f-> sigman  = 0.5 ;
   f-> sigmak  = pow (2.0, 1.0 / nlevels) ;
@@ -959,10 +977,14 @@ vl_sift_delete (VlSiftFilt* f)
 {
   if (f) {
     if (f->keys) vl_free (f->keys) ;
+#ifndef REDUCE_MEMORY
     if (f->grad) vl_free (f->grad) ;
+#endif
     if (f->dog) vl_free (f->dog) ;
     if (f->octave) vl_free (f->octave) ;
+#ifndef REDUCE_MEMORY
     if (f->temp) vl_free (f->temp) ;
+#endif
     if (f->gaussFilter) vl_free (f->gaussFilter) ;
     vl_free (f) ;
   }
