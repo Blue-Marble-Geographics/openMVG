@@ -151,7 +151,7 @@ class FixedArray {
   static const size_type kInlineElements = S2;
 
   size_type const       size_;
-  InnerContainer*       array_;
+  InnerContainer* const array_;
 
   // Allocate some space, not an array of elements of type T, so that we can
   // skip calling the T constructors and destructors for space we never use.
@@ -163,13 +163,12 @@ class FixedArray {
 template <class T, ssize_t S>
 inline FixedArray<T, S>::FixedArray(typename FixedArray<T, S>::size_type n)
     : size_(n),
-      array_(reinterpret_cast<InnerContainer*>(inline_space_))
-  {
-    if (n > kInlineElements) {
-      array_ = new InnerContainer[n];
-    } else {
+      array_((n <= kInlineElements
+              ? reinterpret_cast<InnerContainer*>(inline_space_)
+              : new InnerContainer[n])) {
   // Construct only the elements actually used.
-      for (size_t i = 0; i != n; ++i) {
+  if (array_ == reinterpret_cast<InnerContainer*>(inline_space_)) {
+    for (size_t i = 0; i != size_; ++i) {
       inline_space_[i].Init();
     }
   }
@@ -180,7 +179,7 @@ inline FixedArray<T, S>::~FixedArray() {
   if (array_ != reinterpret_cast<InnerContainer*>(inline_space_)) {
     delete[] array_;
   } else {
-    for (size_t i = 0, cnt = size_; i != cnt; ++i) {
+    for (size_t i = 0; i != size_; ++i) {
       inline_space_[i].Destroy();
     }
   }
