@@ -90,7 +90,7 @@ VL_XCAT3(_vl_imconvcol_v, SFX, _sse2)
     vl_index stop ;
 
     /* Always allow SIMD processing. */
-    if (((x + VSIZE*MULT) < (signed)src_width) 
+    if (((x + VSIZE*MULT) <= (signed)src_width) 
        /*& VALIGNED(src + x) & use_simd*/)
     {
       /* ----------------------------------------------  Vectorized */

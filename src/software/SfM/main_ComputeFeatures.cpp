@@ -9,6 +9,13 @@
 // The <cereal/archives> headers are special and must be included first.
 #include <cereal/archives/json.hpp>
 
+#include "P2PUtils.h"
+
+/* Have CF process a single image for testing */
+#define TEST_CF_SINGLE_IMAGE         (0)
+#define TEST_CF_NOTHREADING          (0)
+#define TEST_CF_MAX_IMAGES           (0)
+
 #include "openMVG/features/akaze/image_describer_akaze_io.hpp"
 
 #include "openMVG/features/sift/SIFT_Anatomy_Image_Describer_io.hpp"
@@ -254,6 +261,8 @@ int main(int argc, char **argv)
 
     // Use a boolean to track if we must stop feature extraction
     std::atomic<bool> preemptive_exit(false);
+
+#if (!TEST_CF_SINGLE_IMAGE) || (!TEST_CF_NOTHREADING)
 #ifdef OPENMVG_USE_OPENMP
     const unsigned int nb_max_thread = omp_get_max_threads();
 
@@ -265,7 +274,12 @@ int main(int argc, char **argv)
 
     #pragma omp parallel for schedule(dynamic) if (iNumThreads > 0) private(imageGray)
 #endif
+#endif
+#if (TEST_CF_MAX_IMAGES==0)
     for (int i = 0; i < static_cast<int>(sfm_data.views.size()); ++i)
+#else
+    for (int i = 0; i < std::min(static_cast<int>(sfm_data.views.size()), (int) TEST_CF_MAX_IMAGES); ++i)
+#endif
     {
       Views::const_iterator iterViews = sfm_data.views.begin();
       std::advance(iterViews, i);
@@ -339,6 +353,9 @@ int main(int argc, char **argv)
         }
       }
       ++my_progress_bar;
+#if (TEST_CF_SINGLE_IMAGE) && (!TEST_CF_NOTHREADING)
+      break;
+#endif
     }
     OPENMVG_LOG_INFO << "Task done in (s): " << timer.elapsed();
   }

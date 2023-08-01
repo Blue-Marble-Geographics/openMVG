@@ -13,6 +13,7 @@ the terms of the BSD license (see the COPYING file).
 
 #ifndef VL_MATHOP_H
 #define VL_MATHOP_H
+#include "../../../P2PUtils.h"
 
 #include "generic.h"
 #include <math.h>
@@ -308,6 +309,7 @@ vl_log2_f (float x)
  **
  ** @return Approximation of @c atan2(y,x).
  **/
+/* Original work from https://web.archive.org/web/20140115122512/http://lists.apple.com/archives/perfoptimization-dev/2005/Jan/msg00051.html */
 
 VL_INLINE float
 vl_fast_atan2_f (float y, float x)

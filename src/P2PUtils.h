@@ -10,9 +10,9 @@
 /* Potentially faster, but will reorder generated keypoints and make debugging more difficult. */
 #define PARALLEL_KEYPOINT_GENERATION (1)
 
-#define FAST_SIFT_DETECT             (0) /* Default behavior.  No error loss. */
-#define FAST_SIFT_GRADIENT_UPDATE    (0) /* Faster, adds insignificant error. */
-#define FAST_SIFT_CALC_KEYPOINTS     (0) /* Faster with ~1% error on 1% of the output */
+#define FAST_SIFT_DETECT             (1) /* Default behavior.  No error loss. */
+#define FAST_SIFT_GRADIENT_UPDATE    (1) /* Faster, adds insignificant error. */
+#define FAST_SIFT_CALC_KEYPOINTS     (1) /* Faster with ~1% error on 1% of the output */
 #define FAST_SIFT_CALC_KEYPOINT_ORIENTATIONS (0)
 #define    NO_FAST_EXP               (0)
 #define    USE_FAST_EXP              (1)
@@ -336,8 +336,8 @@ static __forceinline _Data FastAtan(_Data x)
 static __forceinline _Data FastATan2(_Data y, _Data x)
 {
   /* Not bitwise compatible with vl_fast_atan2_*/
-  _Data const vPi      = _Set(M_PI);
-  _Data const vPi2     = _Set(M_PI_2);
+  _Data const vPi      = _Set((float) M_PI);
+  _Data const vPi2     = _Set((float) M_PI_2);
   _Data const vAbsMask = _CastFI(_SetI(0x7FFFFFFF));
   _Data const vSignMask
                        = _CastFI(_SetI(0x80000000));
@@ -384,7 +384,7 @@ static __forceinline _Data Mod2PILimited(_Data x)
 {
   // Perform a limited mod on the components of x.
   // x is in the range [-4PI, +4PI]
-  _Data const vTwoPI   = _Set(2 * VL_PI);
+  _Data const vTwoPI   = _Set((float) (2. * VL_PI));
   _Data const vZero    = _Set(0.f);
 
   _Data needsReduction = _CmpGE(x, vTwoPI);
@@ -408,8 +408,8 @@ static __forceinline _Data FastAbs(_Data x)
 static __forceinline _Data GradCalc2(_Data y, _Data x)
 {
   /* An SSE2-comparable variant of vl_mod_2pi_f(vl_fast_atan2_f (gy, gx) + 2*VL_PI) */
-  _Data const vTwoPI   = _Set(2 * VL_PI);
-  _Data const vZero    = _Set(0);
+  _Data const vTwoPI   = _Set((float) (2. * VL_PI));
+  _Data const vZero    = _Set(0.f);
 
   _Data const vC3      = _Set(0.1821f);
   _Data const vC1      = _Set(0.9675f);
@@ -419,7 +419,7 @@ static __forceinline _Data GradCalc2(_Data y, _Data x)
 
   _Data const vNum     = _Sub(x, _Or(vAbsY, _And(x, vHighBit)));
   _Data const vDen     = _Add(vAbsY, _Xor(x, _And(x, vHighBit)));
-  _Data vAngle         = Blend(_Set(3*VL_PI/4), _Set(VL_PI/4), _CmpGE(x, vZero));
+  _Data vAngle         = Blend(_Set((float) (3.*VL_PI/4.)), _Set((float) (VL_PI/4.)), _CmpGE(x, vZero));
   _Data const vR       = _Div(vNum, vDen);
   vAngle               = _Add(
                             vAngle,

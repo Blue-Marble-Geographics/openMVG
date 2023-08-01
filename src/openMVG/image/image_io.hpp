@@ -82,7 +82,7 @@ int WriteImage( const char * path , const Image<T>& image );
 * @retval 1 If loading is correct
 * @retval 0 If there was an error during load operation
 */
-int ReadImage( const char * path, std::vector<unsigned char> * image , int * w, int * h, int * depth );
+int ReadImage( const char * path, std::vector<unsigned char> * image , int * w, int * h, int * depth, bool grayConvert = false );
 
 /**
 * @brief Unsigned char specialization
@@ -161,7 +161,7 @@ int WritePngStream( FILE * stream ,  const std::vector<unsigned char>& array, in
 * @retval 0 if there is an error during read operation
 * @return non nul value if read operation is valid
 */
-int ReadJpg( const char * path , std::vector<unsigned char> * array, int * w, int * h, int * depth );
+int ReadJpg( const char * path , std::vector<unsigned char> * array, int * w, int * h, int * depth, bool grayConvert = false );
 
 /**
 * @brief Read JPEG image from stream
@@ -173,7 +173,7 @@ int ReadJpg( const char * path , std::vector<unsigned char> * array, int * w, in
 * @retval 0 if there is an error during read operation
 * @return non nul value if read operation is valid
 */
-int ReadJpgStream( FILE * stream , std::vector<unsigned char> * array, int * w, int * h, int * depth );
+int ReadJpgStream( FILE * stream , std::vector<unsigned char> * array, int * w, int * h, int * depth, bool grayConvert = false );
 
 /**
 * @brief Write JPEG file
@@ -368,7 +368,7 @@ inline int ReadImage( const char * path, Image<unsigned char> * im )
 {
   std::vector<unsigned char> ptr;
   int w, h, depth;
-  const int res = ReadImage( path, &ptr, &w, &h, &depth );
+  const int res = ReadImage( path, &ptr, &w, &h, &depth, true /* grayConvert */ );
   if ( res == 1 && depth == 1 )
   {
     //convert raw array to Image

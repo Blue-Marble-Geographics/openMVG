@@ -669,6 +669,8 @@ Gaussian window size is set to have standard deviation
 
 **/
 
+#include "../../../P2PUtils.h"
+
 #include "sift.h"
 #include "imopv.h"
 #include "mathop.h"
@@ -796,10 +798,16 @@ _vl_sift_smooth (VlSiftFilt * self,
   if (self->gaussFilterSigma != sigma) {
     vl_uindex j ;
     vl_sift_pix acc = 0 ;
-    if (self->gaussFilter) vl_free (self->gaussFilter) ;
+
     self->gaussFilterWidth = VL_MAX(ceil(4.0 * sigma), 1) ;
+    size_t const gaussFilterSize = sizeof(vl_sift_pix) * (2 * self->gaussFilterWidth + 1);
+    if (gaussFilterSize > self->gaussFilterSize) {
+    if (self->gaussFilter) vl_free (self->gaussFilter) ;
+        self->gaussFilter = vl_malloc (gaussFilterSize) ;
+        self->gaussFilterSize = gaussFilterSize;
+    }
+
     self->gaussFilterSigma = sigma ;
-    self->gaussFilter = vl_malloc (sizeof(vl_sift_pix) * (2 * self->gaussFilterWidth + 1)) ;
 
     for (j = 0 ; j < 2 * self->gaussFilterWidth + 1 ; ++j) {
       vl_sift_pix d = ((vl_sift_pix)((signed)j - (signed)self->gaussFilterWidth)) / ((vl_sift_pix)sigma) ;
@@ -939,6 +947,7 @@ vl_sift_new (int width, int height,
   f-> dsigma0 = f->sigma0 * sqrt (1.0 - 1.0 / (f->sigmak*f->sigmak)) ;
 
   f-> gaussFilter = NULL ;
+  f-> gaussFilterSize = 0;
   f-> gaussFilterSigma = 0 ;
   f-> gaussFilterWidth = 0 ;
 
@@ -1181,11 +1190,382 @@ vl_sift_process_next_octave (VlSiftFilt *f)
  **
  ** @param f SIFT filter.
  **/
-
 VL_EXPORT
 void
 vl_sift_detect (VlSiftFilt * f)
 {
+#if FAST_SIFT_DETECT
+  vl_sift_pix* dog   = f-> dog ;
+  int          s_min = f-> s_min ;
+  int          s_max = f-> s_max ;
+  int          w     = f-> octave_width ;
+  int          h     = f-> octave_height ;
+  double       te    = f-> edge_thresh ;
+  double       tp    = f-> peak_thresh ;
+
+  int const    xo    = 1 ;      /* x-stride */
+  int const    yo    = w ;      /* y-stride */
+  int const    so    = w * h ;  /* s-stride */
+
+  double       xper  = pow (2.0, f->o_cur) ;
+
+  int x, y, s, i, ii, jj ;
+  vl_sift_pix const* __restrict pt;
+  vl_sift_pix v ;
+  VlSiftKeypoint * __restrict k ;
+
+  /* clear current list */
+  f-> nkeys = 0 ;
+
+  /* -----------------------------------------------------------------
+   *                                          Find local maxima of DoG
+   * -------------------------------------------------------------- */
+
+  float const tolerance = 0.8 * tp;
+
+  int const tileHeight = 1;
+  int const tileWidth = 512;//192*4; /* Determined empirically */
+  int const imageInteriorHeight = ((h-1)-1);
+  int const imageInteriorWidth = ((w-1)-1);
+  int numTilesY = ceil( ((double) imageInteriorHeight) / tileHeight);
+  int numTilesX = ceil( ((double) imageInteriorWidth) / tileWidth);
+
+  vl_sift_pix const* __restrict octaves[] = {
+    vl_sift_get_octave (f, (s_min + 1) - 1 ),
+    vl_sift_get_octave (f, (s_min + 1) - 0 ),
+    vl_sift_get_octave (f, (s_min + 1) + 1 ),
+    vl_sift_get_octave (f, (s_min + 1) + 2 )
+  };
+
+  /* curDog is the UL image index of the DoG for the first image.
+   * It will always have a previous (curDog-so) and next (curDog+so) DoG */
+  vl_sift_pix* __restrict curDog = dog + so ;
+
+  /* Detect keypoints in blocks.  Block size is designed to maximize cache reuse. */
+  for (s = s_min + 1 ; s <= s_max - 2 ; ++s, curDog += so) {
+    int tileIndexBase = w + 1;
+    for (int ty = 0; ty < imageInteriorHeight; ty += tileHeight, tileIndexBase += w) {
+      int const actualTileHeight = min(tileHeight, imageInteriorHeight-ty);
+      for (int tx = 0; tx < imageInteriorWidth; tx += tileWidth) {
+        /* Fill in the DoG for the next tile. */
+        vl_sift_pix const* __restrict octavesForTile[4];
+
+        /* Keypoint detection requires the DoG be calculated on its
+         * pixels and may use its surrounding pixels (1-pixel border).
+         * It may also need access to similar data from the previous
+         * and next DoG sets */
+        int const tileIndex = tileIndexBase + tx; /* UL image index to start examining. */
+        int const actualTileWidth = min(tileWidth, imageInteriorWidth-tx);
+
+        /* Naively we could calculate the DoGs with a one-pixel border,
+         * but here subtly change the border to minimize redundant work
+         * between adjacent tiles, both vertically and horizontally. */
+        int tileDogIndex = tileIndex;
+        int dogWidth = actualTileWidth;
+        int dogHeight = actualTileHeight;
+        // Several cases:
+        if (0 == ty) {
+          tileDogIndex -= w; /* top row */
+          dogHeight++;
+          dogHeight++;   /* and bottom */
+        } else {
+          tileDogIndex += w;
+        }
+
+        if (0 == tx) {
+          tileDogIndex--;
+          dogWidth++;
+          dogWidth++; /* right column */
+        } else {
+          ++tileDogIndex;
+        }
+
+        /* Similarly, we could calculate the DoG with a one-pixel depth
+         * border, but here we detect all cases and build the relevant
+         * data just once. */
+        if (s == s_min+1) {
+          int dogIndex = tileDogIndex;
+
+          /* The first time we need the prev, current, and next DoG. */
+          vl_sift_pix const* const __restrict prevOctave = octaves[0];
+          vl_sift_pix const* const __restrict octave = octaves[1];
+          vl_sift_pix const* const __restrict nextOctave = octaves[2];
+          vl_sift_pix const* const __restrict nextNextOctave = octaves[3];
+
+          vl_sift_pix* const __restrict prevDog = curDog - so;
+          vl_sift_pix* const __restrict nextDog = curDog + so;
+
+          for (y = 0; y < dogHeight; ++y, dogIndex += w) {
+            for (int k = dogIndex, last = dogIndex+dogWidth; k != last; ++k) {
+              prevDog[k] = octave[k] - prevOctave[k];
+              curDog[k] = nextOctave[k] - octave[k];
+              nextDog[k] = nextNextOctave[k] - nextOctave[k];
+            }
+          }
+        } else {
+          // Have a prev
+          // Have a cur
+          // May need next
+          if (s <= s_max-2) {
+            // Need a next
+            int dogIndex = tileDogIndex;
+
+            // Fill in the dog
+            vl_sift_pix const* const __restrict nextOctave = octaves[2] ;
+            vl_sift_pix const* const __restrict nextNextOctave = octaves[3] ;
+
+            vl_sift_pix* const __restrict nextDog = curDog + so;
+            for (y = 0; y < dogHeight; ++y, dogIndex += w) {
+              for (int k = dogIndex, last = dogIndex+dogWidth; k != last; ++k) {
+                nextDog[k] = nextNextOctave[k] - nextOctave[k];
+              }
+            }
+          }
+        }
+      
+        /* Scan the tile itself */
+        pt = curDog + tileIndex;
+
+        for (y = 0; y < tileHeight; ++y, pt += w-tileWidth) {
+          for (x = 0; x < tileWidth; ++x, ++pt) {
+            v = *pt;
+
+#define CHECK_NEIGHBORS(CMP,SGN)                    \
+        ( v CMP ## = SGN tolerance &&               \
+          v CMP *(pt + xo) &&                       \
+          v CMP *(pt - xo) &&                       \
+          v CMP *(pt + so) &&                       \
+          v CMP *(pt - so) &&                       \
+          v CMP *(pt + yo) &&                       \
+          v CMP *(pt - yo) &&                       \
+                                                    \
+          v CMP *(pt + yo + xo) &&                  \
+          v CMP *(pt + yo - xo) &&                  \
+          v CMP *(pt - yo + xo) &&                  \
+          v CMP *(pt - yo - xo) &&                  \
+                                                    \
+          v CMP *(pt + xo      + so) &&             \
+          v CMP *(pt - xo      + so) &&             \
+          v CMP *(pt + yo      + so) &&             \
+          v CMP *(pt - yo      + so) &&             \
+          v CMP *(pt + yo + xo + so) &&             \
+          v CMP *(pt + yo - xo + so) &&             \
+          v CMP *(pt - yo + xo + so) &&             \
+          v CMP *(pt - yo - xo + so) &&             \
+                                                    \
+          v CMP *(pt + xo      - so) &&             \
+          v CMP *(pt - xo      - so) &&             \
+          v CMP *(pt + yo      - so) &&             \
+          v CMP *(pt - yo      - so) &&             \
+          v CMP *(pt + yo + xo - so) &&             \
+          v CMP *(pt + yo - xo - so) &&             \
+          v CMP *(pt - yo + xo - so) &&             \
+          v CMP *(pt - yo - xo - so) )
+
+            if (CHECK_NEIGHBORS(>,+) || CHECK_NEIGHBORS(<,-) ) {
+              /* make room for more keypoints */
+              if (f->nkeys >= f->keys_res) {
+                f->keys_res += 32768 ;
+                if (f->keys) {
+                  f->keys = vl_realloc (f->keys,
+                                        f->keys_res *
+                                        sizeof(VlSiftKeypoint)) ;
+                } else {
+                  f->keys = vl_malloc (f->keys_res *
+                                       sizeof(VlSiftKeypoint)) ;
+                }
+              }
+
+              k = f->keys + (f->nkeys ++) ;
+
+              k-> ix = tx + x + 1;
+              k-> iy = ty + y + 1;
+              k-> is = s ;
+            }
+          } // x
+        } // y
+      } // tx
+    } // ty
+
+    /* Advance to next octave */
+    for (int i = 0; i < 3; ++i) {
+      octaves[i] = octaves[i+1];
+    }
+    octaves[3] = (s < s_max-2) ? vl_sift_get_octave (f, s + 3 ) : 0;
+  } // s
+    
+  /* -----------------------------------------------------------------
+   *                                               Refine local maxima
+   * -------------------------------------------------------------- */
+
+  /* this pointer is used to write the keypoints back */
+  k = f->keys ;
+
+  for (i = 0 ; i < f->nkeys ; ++i) {
+
+    int x = f-> keys [i] .ix ;
+    int y = f-> keys [i] .iy ;
+    int s = f-> keys [i]. is ;
+
+    double Dx=0,Dy=0,Ds=0,Dxx=0,Dyy=0,Dss=0,Dxy=0,Dxs=0,Dys=0 ;
+    double A [3*3], b [3] ;
+
+    int dx = 0 ;
+    int dy = 0 ;
+
+    int iter, i, j ;
+
+    for (iter = 0 ; iter < 5 ; ++iter) {
+
+      x += dx ;
+      y += dy ;
+
+      pt = dog
+        + xo * x
+        + yo * y
+        + so * (s - s_min) ;
+
+      /** @brief Index GSS @internal */
+#define at(dx,dy,ds) (*( pt + (dx)*xo + (dy)*yo + (ds)*so))
+
+      /** @brief Index matrix A @internal */
+#define Aat(i,j)     (A[(i)+(j)*3])
+
+      /* compute the gradient */
+      Dx = 0.5 * (at(+1,0,0) - at(-1,0,0)) ;
+      Dy = 0.5 * (at(0,+1,0) - at(0,-1,0));
+      Ds = 0.5 * (at(0,0,+1) - at(0,0,-1)) ;
+
+      /* compute the Hessian */
+      Dxx = (at(+1,0,0) + at(-1,0,0) - 2.0 * at(0,0,0)) ;
+      Dyy = (at(0,+1,0) + at(0,-1,0) - 2.0 * at(0,0,0)) ;
+      Dss = (at(0,0,+1) + at(0,0,-1) - 2.0 * at(0,0,0)) ;
+
+      Dxy = 0.25 * ( at(+1,+1,0) + at(-1,-1,0) - at(-1,+1,0) - at(+1,-1,0) ) ;
+      Dxs = 0.25 * ( at(+1,0,+1) + at(-1,0,-1) - at(-1,0,+1) - at(+1,0,-1) ) ;
+      Dys = 0.25 * ( at(0,+1,+1) + at(0,-1,-1) - at(0,-1,+1) - at(0,+1,-1) ) ;
+
+      /* solve linear system ....................................... */
+      Aat(0,0) = Dxx ;
+      Aat(1,1) = Dyy ;
+      Aat(2,2) = Dss ;
+      Aat(0,1) = Aat(1,0) = Dxy ;
+      Aat(0,2) = Aat(2,0) = Dxs ;
+      Aat(1,2) = Aat(2,1) = Dys ;
+
+      b[0] = - Dx ;
+      b[1] = - Dy ;
+      b[2] = - Ds ;
+
+      /* Gauss elimination */
+      for(j = 0 ; j < 3 ; ++j) {
+        double maxa    = 0 ;
+        double maxabsa = 0 ;
+        int    maxi    = -1 ;
+        double tmp ;
+
+        /* look for the maximally stable pivot */
+        for (i = j ; i < 3 ; ++i) {
+          double a    = Aat (i,j) ;
+          double absa = vl_abs_d (a) ;
+          if (absa > maxabsa) {
+            maxa    = a ;
+            maxabsa = absa ;
+            maxi    = i ;
+          }
+        }
+
+        /* if singular give up */
+        if (maxabsa < 1e-10f) {
+          b[0] = 0 ;
+          b[1] = 0 ;
+          b[2] = 0 ;
+          break ;
+        }
+
+        i = maxi ;
+
+        /* swap j-th row with i-th row and normalize j-th row */
+        for(jj = j ; jj < 3 ; ++jj) {
+          tmp = Aat(i,jj) ; Aat(i,jj) = Aat(j,jj) ; Aat(j,jj) = tmp ;
+          Aat(j,jj) /= maxa ;
+        }
+        tmp = b[j] ; b[j] = b[i] ; b[i] = tmp ;
+        b[j] /= maxa ;
+
+        /* elimination */
+        for (ii = j+1 ; ii < 3 ; ++ii) {
+          double x = Aat(ii,j) ;
+          for (jj = j ; jj < 3 ; ++jj) {
+            Aat(ii,jj) -= x * Aat(j,jj) ;
+          }
+          b[ii] -= x * b[j] ;
+        }
+      }
+
+      /* backward substitution */
+      for (i = 2 ; i > 0 ; --i) {
+        double x = b[i] ;
+        for (ii = i-1 ; ii >= 0 ; --ii) {
+          b[ii] -= x * Aat(ii,i) ;
+        }
+      }
+
+      /* .......................................................... */
+      /* If the translation of the keypoint is big, move the keypoint
+       * and re-iterate the computation. Otherwise we are all set.
+       */
+
+      dx= ((b[0] >  0.6 && x < w - 2) ?  1 : 0)
+        + ((b[0] < -0.6 && x > 1    ) ? -1 : 0) ;
+
+      dy= ((b[1] >  0.6 && y < h - 2) ?  1 : 0)
+        + ((b[1] < -0.6 && y > 1    ) ? -1 : 0) ;
+
+      if (dx == 0 && dy == 0) break ;
+    }
+
+    /* check threshold and other conditions */
+    {
+      double val   = at(0,0,0)
+        + 0.5 * (Dx * b[0] + Dy * b[1] + Ds * b[2]) ;
+      double score = (Dxx+Dyy)*(Dxx+Dyy) / (Dxx*Dyy - Dxy*Dxy) ;
+      double xn = x + b[0] ;
+      double yn = y + b[1] ;
+      double sn = s + b[2] ;
+
+      vl_bool good =
+        vl_abs_d (val)  > tp                  &&
+        score           < (te+1)*(te+1)/te    &&
+        score           >= 0                  &&
+        vl_abs_d (b[0]) <  1.5                &&
+        vl_abs_d (b[1]) <  1.5                &&
+        vl_abs_d (b[2]) <  1.5                &&
+        xn              >= 0                  &&
+        xn              <= w - 1              &&
+        yn              >= 0                  &&
+        yn              <= h - 1              &&
+        sn              >= s_min              &&
+        sn              <= s_max ;
+
+      if (good) {
+        k-> o     = f->o_cur ;
+        k-> ix    = x ;
+        k-> iy    = y ;
+        k-> is    = s ;
+        k-> s     = sn ;
+        k-> x     = xn * xper ;
+        k-> y     = yn * xper ;
+        k-> sigma = f->sigma0 * pow (2.0, sn/f->S) * xper ;
+        ++ k ;
+      }
+
+    } /* done checking */
+  } /* next keypoint to refine */
+
+  /* update keypoint count */
+  f-> nkeys = (int)(k - f->keys) ;
+#else
   vl_sift_pix* dog   = f-> dog ;
   int          s_min = f-> s_min ;
   int          s_max = f-> s_max ;
@@ -1462,8 +1842,8 @@ vl_sift_detect (VlSiftFilt * f)
 
   /* update keypoint count */
   f-> nkeys = (int)(k - f->keys) ;
+#endif
 }
-
 
 /** ------------------------------------------------------------------
  ** @brief Update gradients to current GSS octave
@@ -1475,6 +1855,57 @@ vl_sift_detect (VlSiftFilt * f)
  **
  ** @remark The minimum octave size is 2x2xS.
  **/
+
+#if FAST_SIFT_GRADIENT_UPDATE
+void FastGradientRow(
+  vl_sift_pix const ** g,
+  vl_sift_pix const ** __restrict s,
+  vl_sift_pix const * const __restrict end,
+  int xo,
+  int yo
+)
+{
+  vl_sift_pix* __restrict src = *s;
+  vl_sift_pix* __restrict grad = *g;
+
+  /* Perform the processing GROUP_SIZE elements at a time. */
+  int const count       = end - src;
+  int const numGroups   = count / GROUP_SIZE;
+  _Data const vHalf     = _Set(0.5f);
+
+  for (int i = 0; i < numGroups; ++i, src += GROUP_SIZE, grad += GROUP_SIZE * 2) {
+    _Data const vGx     = _Load(src + xo); // s
+    _Data const vGy     = _Load(src + yo);
+    _Data const vGx2    = _Load(src - xo);
+    _Data const vGy2    = _Load(src - yo);
+                         
+    _Data const vDiff   = _Sub(vGx, vGx2);
+    _Data const vDiff2  = _Sub(vGy, vGy2);
+
+    /* Calculate the first half of the gradient. */
+    _Data const vHalfGx = _Mul(vHalf, vDiff);
+    _Data const vHalfGy = _Mul(vHalf, vDiff2);
+    _Data const vNorm   = _Add(_Mul(vHalfGx, vHalfGx), _Mul(vHalfGy, vHalfGy));
+    _Data const vSqrt   = _Sqrt(vNorm);
+
+    /* Now the second. */
+    _Data const vAtan2 = GradCalc2(vHalfGy, vHalfGx);
+
+    /* Store s0, s1, s2, s3 and a0, a1, a2, a3 as: */
+    _Store( /* s0, a0, s1, a1 */
+      grad,
+      _UnpackLow(vSqrt, vAtan2)
+    );
+    _Store( /* s2, a2, s3, a3 */
+      grad + GROUP_SIZE,
+      _UnpackHigh(vSqrt, vAtan2)
+    );
+  }
+
+  *s = src;
+  *g = grad;
+}
+#endif /* FAST_SIFT_GRADIENT_UPDATE */
 
 void
 vl_sift_update_gradient (VlSiftFilt *f)
@@ -1530,6 +1961,12 @@ vl_sift_update_gradient (VlSiftFilt *f)
 
       /* middle pixels of the middle rows */
       end = (src - 1) + w - 1 ;
+#if FAST_SIFT_GRADIENT_UPDATE
+      /* Perform the processing on the remaining elements. */
+      FastGradientRow( &grad, &src, end, xo, yo );
+#endif
+
+      /* middle pixels of the middle rows */
       while (src < end) {
         gx = 0.5 * (src[+xo] - src[-xo]) ;
         gy = 0.5 * (src[+yo] - src[-yo]) ;
@@ -1646,6 +2083,69 @@ vl_sift_calc_keypoint_orientations (VlSiftFilt *f,
   for(ys  =  VL_MAX (- W,       - yi) ;
       ys <=  VL_MIN (+ W, h - 1 - yi) ; ++ys) {
 
+#if FAST_SIFT_CALC_KEYPOINT_ORIENTATIONS
+      JPB WIP
+    __declspec(align(ALIGN_SIZE)) int modv[ GROUP_SIZE ];
+    __declspec(align(ALIGN_SIZE)) int angv[ GROUP_SIZE ];
+    __declspec(align(ALIGN_SIZE)) float r2s[ GROUP_SIZE ];
+    int cnt = 0;
+
+    vl_sift_pix mod, ang, fbin;
+    const float fbinFactor = ( ( float ) nbins ) / ( 2.f * VL_PI );
+    _DataF fbinFactorv = _Set( fbinFactor );
+    float invTwoSignmaw = 1.0 / ( 2.0 * sigmaw * sigmaw );
+    _DataF invTwoSignmawv = _Set(invTwoSignmaw );
+    _DataF half = _Set( 0.5f );
+    float tolerance = ( ( ( float ) W * W ) + 0.6f );
+
+    int ysy0 = ys * yo;
+    for(xs  = VL_MAX (- W,       - xi) ;
+        xs <= VL_MIN (+ W, w - 1 - xi) ; ++xs) {
+        float dx = (float)(xi + xs) - x;
+        float dy = (float)(yi + ys) - y;
+        float r2 = dx*dx + dy*dy ;
+
+        /* limit to a circular window */
+        if (r2 >= tolerance ) continue ;
+
+        modv[ cnt ] = *( pt + xs * xo + ysy0 );
+        angv[ cnt ] = *( pt + xs * xo + ysy0 + 1 );
+        r2s[ cnt ] = r2;
+
+        ++cnt;
+        if (GROUP_SIZE == cnt) {
+            _DataF wgtv = FastExp(_Mul(_LoadA(r2s), invTwoSignmawv)) ;
+            _DataF fbinv = _Mul( _LoadA( angv ), fbinFactorv );
+
+            _DataF fast_floor_rbset( _DataF x );
+            _DataF binfv = fast_floor_rbset( _Sub( fbinv, half ) );
+            _DataI biniv = _ConvertIF( fbinv );
+            _DataF rbin = _Sub( _Sub( fbinv, binfv ), half );
+            _DataF modWgt = _Mul( _Load( modv ), wgtv );
+
+            for (int i = 0; i < GROUP_SIZE; ++i) {
+                hist[ ( _AsArrayI( biniv, i ) + nbins ) % nbins ] += ( 1 - _AsArrayF( rbin, i ) ) * _AsArrayF( modWgt, i );
+                hist[ ( _AsArrayI( biniv, i ) + 1 ) % nbins ] += ( _AsArrayF( rbin, i ) ) * _AsArrayF( modWgt, i );
+            }
+            cnt = 0;
+        }
+    }
+
+    for (int i = 0; i < cnt; ++i) {
+        mod = *( pt + xs * xo + ysy0 );
+        ang= *( pt + xs * xo + ysy0 + 1 );
+
+        fbin = ang * fbinFactor;
+
+        float wgt  = FastExp ( -r2s[ i ] * invTwoSignmaw) ;
+        int bin = ( int ) vl_floor_f( fbin - 0.5f );
+        float rbin = fbin - bin - 0.5;
+        float modWgt = mod * wgt;
+        hist[ ( bin + nbins ) % nbins ] += ( 1 - rbin ) * modWgt;
+        hist[ ( bin + 1 ) % nbins ] += ( rbin ) * modWgt;
+    }
+
+#else
     for(xs  = VL_MAX (- W,       - xi) ;
         xs <= VL_MIN (+ W, w - 1 - xi) ; ++xs) {
 
@@ -1677,8 +2177,9 @@ vl_sift_calc_keypoint_orientations (VlSiftFilt *f,
         hist [(bin) % nbins] += mod * wgt ;
       }
 #endif
+  } /* for xs */
+#endif
 
-    } /* for xs */
   } /* for ys */
 
   /* smooth histogram */
@@ -1862,6 +2363,7 @@ vl_sift_calc_raw_descriptor (VlSiftFilt const *f,
        * are in the normalized frame, so that -NBP/2 <= dx <=
        * NBP/2. */
       vl_sift_pix const wsigma = f->windowSize ;
+
       vl_sift_pix win = fast_expn
         (f, (nx*nx + ny*ny)/(2.0 * wsigma * wsigma)) ;
 
@@ -1970,7 +2472,348 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
      arbitrarily rotated, we need to consider a window 2W += sqrt(2) x
      SBP x (NBP + 1) pixels wide.
   */
+#if FAST_SIFT_CALC_KEYPOINTS
+  double const magnif      = f-> magnif ;
 
+  double       xper        = pow (2.0, f->o_cur) ;
+
+  int          w           = f-> octave_width ;
+  int          h           = f-> octave_height ;
+  int const    xo          = 2 ;         /* x-stride */
+  int const    yo          = 2 * w ;     /* y-stride */
+  int const    so          = 2 * w * h ; /* s-stride */
+  double       x           = k-> x     / xper ;
+  double       y           = k-> y     / xper ;
+  double       sigma       = k-> sigma / xper ;
+
+  int          xi          = (int) (x + 0.5) ;
+  int          yi          = (int) (y + 0.5) ;
+  int          si          = k-> is ;
+
+  double const st0         = sin (angle0) ;
+  double const ct0         = cos (angle0) ;
+  double const SBP         = magnif * sigma + VL_EPSILON_D ;
+  int    const W           = floor
+  (sqrt(2.0) * SBP * (NBP + 1) / 2.0 + 0.5) ;
+
+  int const binto = 1 ;          /* bin theta-stride */
+  int const binyo = NBO * NBP ;  /* bin y-stride */
+  int const binxo = NBO ;        /* bin x-stride */
+
+  int bin, dxi, dyi ;
+  vl_sift_pix const *pt ;
+  vl_sift_pix       *dpt ;
+
+  /* check bounds */
+  if(k->o  != f->o_cur        ||
+      xi    <  0               ||
+      xi    >= w               ||
+      yi    <  0               ||
+      yi    >= h -    1        ||
+      si    <  f->s_min + 1    ||
+      si    >  f->s_max - 2     )
+      return ;
+
+  /* VL_PRINTF("W = %d ; magnif = %g ; SBP = %g\n", W,magnif,SBP) ; */
+
+  /* clear descriptor */
+  memset (descr, 0, sizeof(vl_sift_pix) * NBO*NBP*NBP) ;
+
+  /* Center the scale space and the descriptor on the current keypoint.
+   * Note that dpt is pointing to the bin of center (SBP/2,SBP/2,0).
+   */
+  pt  = f->grad + xi*xo + yi*yo + (si - f->s_min - 1)*so ;
+  dpt = descr + (NBP/2) * binyo + (NBP/2) * binxo ;
+
+#undef atd
+#define atd(dbinx,dbiny,dbint) *(dpt + (dbint)*binto + (dbiny)*binyo + (dbinx)*binxo)
+
+  /*
+   * Process pixels in the intersection of the image rectangle
+   * (1,1)-(M-1,N-1) and the keypoint bounding box.
+   */
+  float const wsigma             = f->windowSize ;
+  float const invSigma2          = 1.0 / (2.0 * wsigma * wsigma); // No diff if placed below
+  _Data const negInvSigmaFactor = _Set(-invSigma2);
+   vl_sift_pix const angle0f     = (vl_sift_pix) angle0;
+  _Data const vAngle0           = _Set( angle0 );
+   double const ntFactor         = NBO / (2 * VL_PI);
+  _Data const vntFactor         = _Set(ntFactor);
+  _Data const vHalf             = _Set(0.5f);
+  _Data const vOne              = _Set(1.f);
+  _Data const vZero             = _Set(0.f);
+  _DataI const vIOne             = _SetI(1);
+  _Data const vBinyo            = _Set(binyo);
+  _Data const vBinxo            = _Set(binxo);
+  _DataI const vNBP_2            = _SetI(NBP/2);
+  _DataI const vNBPN_2_1           = _SetI(-NBP/2-1);
+  float const nxInc = ct0 / SBP;
+  float const nyInc = -st0 / SBP;
+  _Data const vNxd = _Set(nxInc*((float) GROUP_SIZE));
+  _Data const vNyd = _Set(nyInc*((float) GROUP_SIZE));
+
+  for(dyi =  VL_MAX (- W, 1 - yi    ) ;
+       dyi <= VL_MIN (+ W, h - yi - 2) ; ++ dyi) {
+
+    dxi = VL_MAX( -W, 1 - xi );
+    vl_sift_pix const * __restrict pMA = pt + dxi * xo + dyi * yo;
+    vl_sift_pix const dx = xi + dxi - x;
+    vl_sift_pix const dy = yi + dyi - y;
+    float nx = ( ct0 * dx + st0 * dy) / SBP ;
+    float ny = (-st0 * dx + ct0 * dy) / SBP ;
+
+    int const dxiMin = VL_MIN( +W, w - xi - 2 );
+    int const count = dxiMin - dxi + 1;
+
+    assert( sizeof( float ) == sizeof( vl_sift_pix ) );
+
+    /* Calculate numGroups GROUP_SIZE pixels at a time. */
+    int const numGroups = count / GROUP_SIZE;
+
+    _Data vNx_half = _Sub(_SetNDeltas(nx, nxInc), vHalf);
+    _Data vNy_half = _Sub(_SetNDeltas(ny, nyInc), vHalf);
+
+    for (
+       int i = 0; i != numGroups;
+       ++i,
+       pMA += GROUP_SIZE*xo, dxi += GROUP_SIZE, vNx_half = _Add(vNx_half, vNxd), vNy_half = _Add(vNy_half, vNyd)
+    ) {
+      _DataI const vIBinx        = _TruncateIF(Floor(vNx_half));
+      _DataI const vINextBinx        = _AddI(vIBinx, vIOne);
+
+      _DataI vXBounded = _AndI(_CmpGTI(vIBinx, vNBPN_2_1), _CmpLTI(vIBinx, vNBP_2));
+      _DataI vXNextBounded = _AndI(_CmpGTI(vINextBinx, vNBPN_2_1), _CmpLTI(vINextBinx, vNBP_2));
+
+      /* Immediately reject unbounded groups horizontally */
+      if (AllZerosI(_OrI(vXBounded, vXNextBounded)))
+        continue;
+
+      _DataI const vIBiny        = _TruncateIF(Floor(vNy_half));
+      _DataI const vINextBiny        = _AddI(vIBiny, vIOne);
+
+      _DataI vYBounded = _AndI(_CmpGTI(vIBiny, vNBPN_2_1), _CmpLTI(vIBiny, vNBP_2));
+      _DataI vYNextBounded = _AndI(_CmpGTI(vINextBiny, vNBPN_2_1), _CmpLTI(vINextBiny, vNBP_2));
+
+      /* Immediately reject unbounded groups vertically */
+      if (AllZerosI(_OrI(vYBounded, vYNextBounded)))
+        continue;
+
+      /* pMA of the form: m0, a0, m1, a1... */
+      _Data const vModsAngles1  = _Load(pMA);
+      _Data const vNx = _Add(vNx_half, vHalf);
+      _Data const vNy = _Add(vNy_half, vHalf);
+      _Data const vBinx         = _ConvertFI(vIBinx);
+      _Data const vBiny         = _ConvertFI(vIBiny);
+      _Data const vModsAngles2  = _Load(pMA+GROUP_SIZE);
+      _Data const vMods         = _Evens(vModsAngles1, vModsAngles2);
+      _Data const vAngles       = _Odds(vModsAngles1, vModsAngles2);
+      _Data const vNts          = _Mul( Mod2PILimited(_Sub(vAngles, vAngle0)), vntFactor);
+
+      /* Get the Gaussian weight of the sample. The Gaussian window
+       * has a standard deviation equal to NBP/2. Note that dx and dy
+       * are in the normalized frame, so that -NBP/2 <= dx <=
+       * NBP/2. */
+      _Data const vNorm         = _Mul(
+                                      _Add( _Mul(vNx, vNx),_Mul(vNy, vNy) ),
+                                      negInvSigmaFactor
+                                   );
+      _Data const vWinMod       = _Mul(FastExp(vNorm), vMods) ;
+
+      _DataI const vIBint       = _TruncateIF(vNts);
+      _Data const vBint         = _ConvertFI(vIBint); // All cases
+      _Data const vRbinx        = _Sub(vNx, _Add(vBinx, vHalf)); // xbounded and (yBounded or yNextBounded)
+      _Data const vRbiny        = _Sub(vNy, _Add(vBiny, vHalf));  // yBounded or yNextBounded
+      _Data const vRbint        = _Sub(vNts, vBint); // All cases
+
+      _Data const vRbint1       = _Mul(vWinMod, FastAbs(_Sub(vOne, vRbint))); // All cases
+      _Data const vRbint2       = _Mul(vWinMod, FastAbs(_Sub(vZero, vRbint))); // All cases
+
+      _Data const vRbint3       = FastAbs(_Sub(vOne, vRbiny));  // yBounded
+      _Data const vRbint4       = FastAbs(_Sub(vZero, vRbiny)); // yNextBounded
+      _Data const vRbint5       = FastAbs(_Sub(vOne, vRbinx));  // xBounded
+      _Data const vRbint6       = FastAbs(_Sub(vZero, vRbinx)); // xNextBounded
+
+      _Data const vRbint53      = _Mul(vRbint5, vRbint3);       // xBounded and yBounded
+      _Data const v531          = _Mul(vRbint53, vRbint1);
+      _Data const v532          = _Mul(vRbint53, vRbint2);
+
+      _Data const vRbint54      = _Mul(vRbint5, vRbint4);       // xBounded and yNextBounded
+      _Data const v541          = _Mul(vRbint54, vRbint1);
+      _Data const v542          = _Mul(vRbint54, vRbint2);
+
+      _Data const vRbint63      = _Mul(vRbint6, vRbint3);       // xNextBounded and yBounded
+      _Data const v631          = _Mul(vRbint63, vRbint1);
+      _Data const v632          = _Mul(vRbint63, vRbint2);
+
+      _Data const vRbint64      = _Mul(vRbint6, vRbint4);       // nNextBounded and yNextBounded
+      _Data const v641          = _Mul(vRbint64, vRbint1);
+      _Data const v642          = _Mul(vRbint64, vRbint2);
+
+      /* ( bint % NBO ) * binto (binto always 1) */
+      _DataI const vRowColOffset = _AddI(
+                                      _ShiftLI(vIBiny, 5), /* row offset binyo == 32 */
+                                      _ShiftLI(vIBinx, 3)  /* col offset binxo == 8 */
+                                    );
+
+      _DataI const vDepthOffset  = _AddI(
+                                      FastMod8(vIBint),
+                                      vRowColOffset
+                                   );
+      /* ( (bint+1) % NBO ) * binto; (binto always 1) */
+      _DataI const vDepthOffset2 = _AddI(
+                                      FastMod8(_AddI(vIBint, vIOne)),
+                                      vRowColOffset
+                                     );
+
+      for (int j = 0; j != GROUP_SIZE; ++j) {
+        /* The sample will be distributed in 8 adjacent bins.
+         * We start from the ``lower-left'' bin. */
+        int const xBounded       = _AsArrayI(vXBounded, j);
+        int const xNextBounded   = _AsArrayI(vXNextBounded, j);
+        int const yBounded       = _AsArrayI(vYBounded, j);
+        int const yNextBounded   = _AsArrayI(vYNextBounded, j);
+      
+        float* __restrict p1
+                                 = dpt + _AsArrayI(vDepthOffset,j);
+        float* __restrict p2
+                                 = dpt + _AsArrayI(vDepthOffset2,j);
+        float* __restrict p3     = p1 + 32; /* binyo == 32 */
+        float* __restrict p4     = p2 + 32;
+      
+        /* Distribute the current sample into the 8 adjacent bins*/
+      
+        /* Not faster to avoid the branches. */
+        if (xBounded) {
+            if (yBounded) {
+              *p1 += _AsArrayF(v531,j); /* xBound < NBP && yBound < NBP */
+              *p2 += _AsArrayF(v532,j); /* xBound < NBP && yBound < NBP */
+            }
+
+            if (yNextBounded) {
+              *p3 += _AsArrayF(v541,j); /* xBound < NBP && (yBound+1) < NBP */
+              *p4 += _AsArrayF(v542,j); /* xBound < NBP && (yBound+1) < NBP */
+            }
+          }
+      
+        if (xNextBounded) {
+         p1 += binxo;
+         p2 += binxo;
+
+         if (yBounded) {
+             *p1 += _AsArrayF(v631,j) ; /* (xBound+1) < NBP && yBound < NBP */
+             *p2 += _AsArrayF(v632,j) ; /* (xBound+1) < NBP && yBound < NBP */
+         }
+
+         if (yNextBounded) {
+           p3 += binxo;
+           p4 += binxo;
+           *p3 += _AsArrayF(v641,j) ; /* (xBound+1) < NBP && (yBound+1) < NBP */
+           *p4 += _AsArrayF(v642,j) ; /* (xBound+1) < NBP && (yBound+1) < NBP */
+         }
+       }
+      }
+    }
+
+    nx = _AsArrayF(vNx_half, 0) + 0.5f;
+    ny = _AsArrayF(vNy_half, 0) + 0.5f;
+
+    /* Perform the processing on the remaining elements. */
+    for( ; dxi <= dxiMin ;++dxi, pMA += xo, nx += nxInc, ny += nyInc) {
+      /* retrieve */
+      vl_sift_pix const mod   = pMA[0] ;
+      vl_sift_pix const angle = pMA[1] ;
+      vl_sift_pix const theta = Mod2PILimitedS(angle - angle0) ;
+
+      /* get the displacement normalized w.r.t. the keypoint
+      orientation and extension */
+      vl_sift_pix const nt = theta * ntFactor ;
+
+      /* Get the Gaussian weight of the sample. The Gaussian window
+       * has a standard deviation equal to NBP/2. Note that dx and dy
+       * are in the normalized frame, so that -NBP/2 <= dx <=
+       * NBP/2. */
+      vl_sift_pix const win =  fastExp3S( -( nx * nx + ny * ny ) * invSigma2 );
+
+      vl_sift_pix const winMod = win * mod;
+
+      /* The sample will be distributed in 8 adjacent bins.
+      We start from the ``lower-left'' bin. */
+      int         binx = (int)vl_floor_f (nx - 0.5f) ;
+      int         biny = (int)vl_floor_f (ny - 0.5f) ;
+      int         bint = (int)vl_floor_f (nt) ;
+      vl_sift_pix rbinx = nx - (binx + 0.5f) ;
+      vl_sift_pix rbiny = ny - (biny + 0.5f) ;
+      vl_sift_pix rbint = nt - bint ;
+      int         dbinx ;
+      int         dbiny ;
+      int         dbint ;
+      vl_sift_pix const rbintFactor1 = vl_abs_f( 1.f - rbint );
+      vl_sift_pix const rbintFactor2 = vl_abs_f( -rbint );
+      vl_sift_pix* dpt_bint_binto = dpt + ( bint % NBO ) * binto;
+      vl_sift_pix* dpt_bint_binto2 = dpt + ( (bint+1) % NBO ) * binto;
+      vl_sift_pix const rbint1 = winMod * rbintFactor1;
+      vl_sift_pix const rbint2 = winMod * rbintFactor2;
+
+      /* Distribute the current sample into the 8 adjacent bins*/
+      int xBound = binx + 0 + NBP / 2;
+      int binx_dbinx_binxo = ( binx + 0 ) * binxo;
+      for(dbinx = 0 ; dbinx < 2 ; ++dbinx, ++xBound, binx_dbinx_binxo += binxo) {
+        if (( unsigned ) xBound < NBP) {
+          int yBound = biny + 0 + NBP / 2;
+          if (( unsigned ) yBound < NBP) {
+            int addressXY = ( biny + 0 ) * binyo + binx_dbinx_binxo;
+            float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
+            vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( 1 - rbiny );
+
+            dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+            dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
+
+            ++yBound;
+            if (( unsigned ) ( yBound ) < NBP) {
+              addressXY += binyo;
+              vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
+
+              dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+              dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
+            }
+          } else {
+            if (( unsigned ) ( yBound + 1 ) < NBP) {
+              int const addressXY = ( biny + 1 ) * binyo + binx_dbinx_binxo;
+              float const weightFactorX = vl_abs_f( 1 - dbinx - rbinx );
+              vl_sift_pix const weightFactorXY = weightFactorX * vl_abs_f( -rbiny );
+
+              dpt_bint_binto[ addressXY ] += weightFactorXY * rbint1;
+              dpt_bint_binto2[ addressXY ] += weightFactorXY * rbint2;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* Standard SIFT descriptors are normalized, truncated and normalized again */
+  if(1) {
+
+      /* Normalize the histogram to L2 unit length. */
+      vl_sift_pix norm = normalize_histogram (descr, descr + NBO*NBP*NBP) ;
+
+      /* Set the descriptor to zero if it is lower than our norm_threshold */
+      if(f-> norm_thresh && norm < f-> norm_thresh) {
+          for(bin = 0; bin < NBO*NBP*NBP ; ++ bin)
+              descr [bin] = 0;
+      }
+      else {
+
+          /* Truncate at 0.2. */
+          for(bin = 0; bin < NBO*NBP*NBP ; ++ bin) {
+              if (descr [bin] > 0.2) descr [bin] = 0.2;
+          }
+
+          /* Normalize again. */
+          normalize_histogram (descr, descr + NBO*NBP*NBP) ;
+      }
+  }
+#else
   double const magnif      = f-> magnif ;
 
   double       xper        = pow (2.0, f->o_cur) ;
@@ -2084,7 +2927,7 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
                 * mod
                 * vl_abs_f (1 - dbinx - rbinx)
                 * vl_abs_f (1 - dbiny - rbiny)
-                * vl_abs_f (1 - dbint - rbint) ;
+                * vl_abs_f (1 - dbint - rbint) ; // rbintFactor1 at dbint = 0 and rbinFactor2 at dbing == 1
 
               atd(binx+dbinx, biny+dbiny, (bint+dbint) % NBO) += weight ;
             }
@@ -2116,7 +2959,7 @@ vl_sift_calc_keypoint_descriptor (VlSiftFilt *f,
       normalize_histogram (descr, descr + NBO*NBP*NBP) ;
     }
   }
-
+#endif
 }
 
 /** ------------------------------------------------------------------
