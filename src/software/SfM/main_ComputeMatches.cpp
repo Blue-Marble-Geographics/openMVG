@@ -163,6 +163,11 @@ int main( int argc, char** argv )
     return EXIT_FAILURE;
   }
 
+  if ((regions_type->DescriptorLength() != 128) || (regions_type->Type_id() != "unsigned char"))
+  {
+    OPENMVG_LOG_ERROR << "Only SIFT_Regions (128 character) regions supported (see regions_factory.hpp).";
+  }
+
   //---------------------------------------
   // a. Compute putative descriptor matches
   //    - Descriptor matching (according user method choice)
