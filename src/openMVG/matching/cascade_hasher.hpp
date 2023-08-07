@@ -176,7 +176,7 @@ public:
 
 
   template <typename MatrixT>
-  HashedDescriptions CreateHashedDescriptions
+  std::unique_ptr<HashedDescriptions> CreateHashedDescriptions
   (
     const MatrixT & descriptions,
     const Eigen::VectorXf & zero_mean_descriptor
@@ -186,10 +186,12 @@ public:
     //   1) Compute hash code and hash buckets (based on the zero_mean_descriptor).
     //   2) Construct buckets.
 
-    HashedDescriptions hashed_descriptions;
+    std::unique_ptr<HashedDescriptions> pHashed_descriptions = std::make_unique<HashedDescriptions>();
     if (descriptions.rows() == 0) {
-      return hashed_descriptions;
+      return pHashed_descriptions;
     }
+
+    auto& hashed_descriptions = *pHashed_descriptions;
 
     // Create hash codes for each description.
     {
@@ -243,7 +245,7 @@ public:
         }
       }
     }
-    return hashed_descriptions;
+    return pHashed_descriptions;
   }
 
   // Matches two collection of hashed descriptions with a fast matching scheme
