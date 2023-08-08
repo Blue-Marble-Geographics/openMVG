@@ -43,9 +43,9 @@ namespace internal {
 BlockJacobiPreconditioner::BlockJacobiPreconditioner(
     const BlockSparseMatrix& A) {
   const CompressedRowBlockStructure* bs = A.block_structure();
-  std::vector<int> blocks(bs->cols.size());
+  std::vector<int> blocks(bs->col_sizes.size());
   for (int i = 0; i < blocks.size(); ++i) {
-    blocks[i] = bs->cols[i].size;
+    blocks[i] = bs->col_sizes[i];
   }
 
   m_.reset(new BlockRandomAccessDiagonalMatrix(blocks));
@@ -63,7 +63,7 @@ bool BlockJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
     const std::vector<Cell>& cells = bs->rows[i].cells;
     for (int j = 0; j < cells.size(); ++j) {
       const int block_id = cells[j].block_id;
-      const int col_block_size = bs->cols[block_id].size;
+      const int col_block_size = bs->col_sizes[block_id];
 
       int r, c, row_stride, col_stride;
       CellInfo* cell_info = m_->GetCell(block_id, block_id,
@@ -80,8 +80,8 @@ bool BlockJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   if (D != NULL) {
     // Add the diagonal.
     int position = 0;
-    for (int i = 0; i < bs->cols.size(); ++i) {
-      const int block_size = bs->cols[i].size;
+    for (int i = 0; i < bs->col_sizes.size(); ++i) {
+      const int block_size = bs->col_sizes[i];
       int r, c, row_stride, col_stride;
       CellInfo* cell_info = m_->GetCell(i, i,
                                         &r, &c,

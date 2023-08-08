@@ -156,13 +156,14 @@ SparseMatrix* BlockJacobianWriter::CreateJacobian() const {
       program_->parameter_blocks();
 
   // Construct the column blocks.
-  bs->cols.resize(parameter_blocks.size());
+  bs->col_sizes.resize(parameter_blocks.size());
+  bs->col_positions.resize(parameter_blocks.size());
   for (int i = 0, cursor = 0; i < parameter_blocks.size(); ++i) {
     CHECK_NE(parameter_blocks[i]->index(), -1);
     CHECK(!parameter_blocks[i]->IsConstant());
-    bs->cols[i].size = parameter_blocks[i]->LocalSize();
-    bs->cols[i].position = cursor;
-    cursor += bs->cols[i].size;
+    bs->col_sizes[i] = parameter_blocks[i]->LocalSize();
+    bs->col_positions[i] = cursor;
+    cursor += bs->col_sizes[i];
   }
 
   // Construct the cells in each row.

@@ -97,12 +97,12 @@ CompressedRowSparseMatrix* InnerProductComputer::CreateResultMatrix(
   matrix->set_storage_type(storage_type);
 
   const CompressedRowBlockStructure* bs = m_.block_structure();
-  const std::vector<Block>& blocks = bs->cols;
-  matrix->mutable_row_blocks()->resize(blocks.size());
-  matrix->mutable_col_blocks()->resize(blocks.size());
-  for (int i = 0; i < blocks.size(); ++i) {
-    (*(matrix->mutable_row_blocks()))[i] = blocks[i].size;
-    (*(matrix->mutable_col_blocks()))[i] = blocks[i].size;
+  const auto& block_sizes = bs->col_sizes;
+  matrix->mutable_row_blocks()->resize(block_sizes.size());
+  matrix->mutable_col_blocks()->resize(block_sizes.size());
+  for (int i = 0; i < block_sizes.size(); ++i) {
+    (*(matrix->mutable_row_blocks()))[i] = block_sizes[i];
+    (*(matrix->mutable_col_blocks()))[i] = block_sizes[i];
   }
 
   return matrix;
@@ -116,15 +116,15 @@ int InnerProductComputer::ComputeNonzeros(
     const std::vector<InnerProductComputer::ProductTerm>& product_terms,
     std::vector<int>* row_nnz) {
   const CompressedRowBlockStructure* bs = m_.block_structure();
-  const std::vector<Block>& blocks = bs->cols;
+  const auto& block_sizes = bs->col_sizes;
 
-  row_nnz->resize(blocks.size());
+  row_nnz->resize(block_sizes.size());
   std::fill(row_nnz->begin(), row_nnz->end(), 0);
 
   // First product term.
-  (*row_nnz)[product_terms[0].row] = blocks[product_terms[0].col].size;
+  (*row_nnz)[product_terms[0].row] = block_sizes[product_terms[0].col];
   int num_nonzeros =
-      blocks[product_terms[0].row].size * blocks[product_terms[0].col].size;
+    block_sizes[product_terms[0].row] * block_sizes[product_terms[0].col];
 
   // Remaining product terms.
   for (int i = 1; i < product_terms.size(); ++i) {
@@ -134,8 +134,8 @@ int InnerProductComputer::ComputeNonzeros(
     // Each (row, col) block counts only once.
     // This check depends on product sorted on (row, col).
     if (current.row != previous.row || current.col != previous.col) {
-      (*row_nnz)[current.row] += blocks[current.col].size;
-      num_nonzeros += blocks[current.row].size * blocks[current.col].size;
+      (*row_nnz)[current.row] += block_sizes[current.col];
+      num_nonzeros += block_sizes[current.row] * block_sizes[current.col];
     }
   }
 
@@ -223,7 +223,8 @@ void InnerProductComputer::Init(
 void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
     const CompressedRowSparseMatrix::StorageType product_storage_type,
     const std::vector<InnerProductComputer::ProductTerm>& product_terms) {
-  const std::vector<Block>& col_blocks = m_.block_structure()->cols;
+  const auto& col_block_sizes = m_.block_structure()->col_sizes;
+  const auto& col_block_positions = m_.block_structure()->col_positions;
 
   std::vector<int> row_block_nnz;
   const int num_nonzeros = ComputeNonzeros(product_terms, &row_block_nnz);
@@ -233,8 +234,8 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
   // Populate the row non-zero counts in the result matrix.
   int* crsm_rows = result_->mutable_rows();
   crsm_rows[0] = 0;
-  for (int i = 0; i < col_blocks.size(); ++i) {
-    for (int j = 0; j < col_blocks[i].size; ++j, ++crsm_rows) {
+  for (int i = 0; i < col_block_sizes.size(); ++i) {
+    for (int j = 0; j < col_block_sizes[i]; ++j, ++crsm_rows) {
       *(crsm_rows + 1) = *crsm_rows + row_block_nnz[i];
     }
   }
@@ -277,10 +278,10 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
   const int nnz_in_row = row_block_nnz[row_block];         \
   int* crsm_cols = result_->mutable_cols();                \
   result_offsets_[current->index] = nnz + col_nnz;         \
-  for (int j = 0; j < col_blocks[row_block].size; ++j) {   \
-    for (int k = 0; k < col_blocks[col_block].size; ++k) { \
+  for (int j = 0; j < col_block_sizes[row_block]; ++j) {   \
+    for (int k = 0; k < col_block_sizes[col_block]; ++k) { \
       crsm_cols[nnz + j * nnz_in_row + col_nnz + k] =      \
-          col_blocks[col_block].position + k;              \
+          col_block_positions[col_block] + k;              \
     }                                                      \
   }
 
@@ -307,13 +308,13 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
     if (previous->row == current->row) {
       // if the current and previous terms are in the same row block,
       // then they differ in the column block, in which case advance
-      // col_nnz by the column size of the prevous term.
-      col_nnz += col_blocks[previous->col].size;
+      // col_nnz by the column size of the previous term.
+      col_nnz += col_block_sizes[previous->col];
     } else {
       // If we have moved to a new row-block , then col_nnz is zero,
       // and nnz is set to the beginning of the row block.
       col_nnz = 0;
-      nnz += row_block_nnz[previous->row] * col_blocks[previous->row].size;
+      nnz += row_block_nnz[previous->row] * col_block_sizes[previous->row];
     }
 
     FILL_CRSM_COL_BLOCK;
@@ -340,9 +341,9 @@ void InnerProductComputer::Compute() {
     const CompressedRow& m_row = bs->rows[r];
     for (int c1 = 0; c1 < m_row.cells.size(); ++c1) {
       const Cell& cell1 = m_row.cells[c1];
-      const int c1_size = bs->cols[cell1.block_id].size;
-      const int row_nnz = rows[bs->cols[cell1.block_id].position + 1] -
-          rows[bs->cols[cell1.block_id].position];
+      const int c1_size = bs->col_sizes[cell1.block_id];
+      const int row_nnz = rows[bs->col_positions[cell1.block_id] + 1] -
+          rows[bs->col_positions[cell1.block_id]];
 
       int c2_begin, c2_end;
       if (storage_type == CompressedRowSparseMatrix::LOWER_TRIANGULAR) {
@@ -355,7 +356,7 @@ void InnerProductComputer::Compute() {
 
       for (int c2 = c2_begin; c2 < c2_end; ++c2, ++cursor) {
         const Cell& cell2 = m_row.cells[c2];
-        const int c2_size = bs->cols[cell2.block_id].size;
+        const int c2_size = bs->col_sizes[cell2.block_id];
         MatrixTransposeMatrixMultiply(m_row.block.size,
                                       m_values + cell1.position, c1_size,
                                       m_values + cell2.position, c2_size,

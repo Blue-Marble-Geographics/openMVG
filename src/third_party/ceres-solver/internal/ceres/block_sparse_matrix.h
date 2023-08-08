@@ -93,7 +93,8 @@ class BlockSparseMatrix : public SparseMatrix {
 
   static BlockSparseMatrix* CreateDiagonalMatrix(
       const double* diagonal,
-      const std::vector<Block>& column_blocks);
+      const std::vector<int>& col_sizes,
+      const std::vector<int>& col_positions);
 
   struct RandomMatrixOptions {
     RandomMatrixOptions()
