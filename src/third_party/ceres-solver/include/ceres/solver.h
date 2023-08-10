@@ -74,23 +74,23 @@ class CERES_EXPORT Solver {
       max_num_line_search_direction_restarts = 5;
       line_search_sufficient_curvature_decrease = 0.9;
       max_line_search_step_expansion = 10.0;
-      trust_region_strategy_type = DOGLEG; //LEVENBERG_MARQUARDT;
+      trust_region_strategy_type = LEVENBERG_MARQUARDT;
       dogleg_type = TRADITIONAL_DOGLEG;
       use_nonmonotonic_steps = false;
-      max_consecutive_nonmonotonic_steps = 4; //5;
+      max_consecutive_nonmonotonic_steps = 5;
       max_num_iterations = 50;
       max_solver_time_in_seconds = 1e9;
       num_threads = 1;
-      initial_trust_region_radius = 1e6; //1e4;
-      max_trust_region_radius = 1e15; //1e16;
-      min_trust_region_radius = 1e-31; //1e-32;
+      initial_trust_region_radius = 1e4;
+      max_trust_region_radius = 1e16;
+      min_trust_region_radius = 1e-32;
       min_relative_decrease = 1e-3;
       min_lm_diagonal = 1e-6;
       max_lm_diagonal = 1e32;
-      max_num_consecutive_invalid_steps = 4; //5;
-      function_tolerance = 1.5e-4; //1e-6;
-      gradient_tolerance = 1e-7; //1e-10;
-      parameter_tolerance = 1e-5; //1e-8;
+      max_num_consecutive_invalid_steps = 5;
+      function_tolerance = 1e-6;
+      gradient_tolerance = 1e-10;
+      parameter_tolerance = 1e-8;
 
 #if defined(CERES_NO_SUITESPARSE) && defined(CERES_NO_CXSPARSE) && !defined(CERES_ENABLE_LGPL_CODE)  // NOLINT
       linear_solver_type = DENSE_QR;

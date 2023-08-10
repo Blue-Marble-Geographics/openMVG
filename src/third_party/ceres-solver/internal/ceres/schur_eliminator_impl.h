@@ -221,13 +221,29 @@ Eliminate(const BlockSparseMatrix* A,
   // z blocks that share a row block/residual term with the y
   // block. EliminateRowOuterProduct does the corresponding operation
   // for the lhs of the reduced linear system.
-#pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
+	int ncores = num_threads_;
+	if ( ncores > 1 ) {
+	    ncores /= 4;
+	}
+    HANDLE process;
+    DWORD_PTR processAffinityMask;
+    //Windows uses a compact thread topology.  Set mask to every other thread
+    for(int i=0; i<ncores; i++) processAffinityMask |= 1<<(2*i);
+    process = GetCurrentProcess();
+    SetProcessAffinityMask(process, processAffinityMask);
+
+#pragma omp parallel for num_threads(ncores /*num_threads_*/) schedule(dynamic)
   for (int i = 0; i < chunks_.size(); ++i) {
 #ifdef CERES_USE_OPENMP
     int thread_id = omp_get_thread_num();
 #else
     int thread_id = 0;
 #endif
+    if ( ncores > 1 ) {
+        HANDLE thread = GetCurrentThread();
+        DWORD_PTR threadAffinityMask = 1 << ( 2 * thread_id );
+        SetThreadAffinityMask( thread, threadAffinityMask );
+    }
     double* buffer = buffer_.get() + thread_id * buffer_size_;
     const Chunk& chunk = chunks_[i];
     const int e_block_id = bs->rows[chunk.start].cells.front().block_id;
