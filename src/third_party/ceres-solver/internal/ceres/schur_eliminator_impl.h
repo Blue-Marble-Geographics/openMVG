@@ -221,6 +221,14 @@ Eliminate(const BlockSparseMatrix* A,
   // z blocks that share a row block/residual term with the y
   // block. EliminateRowOuterProduct does the corresponding operation
   // for the lhs of the reduced linear system.
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "true" );
+  SetEnvironmentVariableA( "OMP_PLACES", "cores" );
+  int ncores = num_threads_;
+  if ( ncores > 1 ) {
+    ncores /= 4;
+  }
+
+#if 0
 	int ncores = num_threads_;
 	if ( ncores > 1 ) {
 	    ncores /= 4;
@@ -233,17 +241,22 @@ Eliminate(const BlockSparseMatrix* A,
     SetProcessAffinityMask(process, processAffinityMask);
 
 #pragma omp parallel for num_threads(ncores /*num_threads_*/) schedule(dynamic)
+#else
+  #pragma omp parallel for num_threads(ncores /*num_threads_*/) schedule(dynamic)
+#endif
   for (int i = 0; i < chunks_.size(); ++i) {
 #ifdef CERES_USE_OPENMP
     int thread_id = omp_get_thread_num();
 #else
     int thread_id = 0;
 #endif
+#if 0
     if ( ncores > 1 ) {
         HANDLE thread = GetCurrentThread();
         DWORD_PTR threadAffinityMask = 1 << ( 2 * thread_id );
         SetThreadAffinityMask( thread, threadAffinityMask );
     }
+#endif
     double* buffer = buffer_.get() + thread_id * buffer_size_;
     const Chunk& chunk = chunks_[i];
     const int e_block_id = bs->rows[chunk.start].cells.front().block_id;
@@ -311,6 +324,10 @@ Eliminate(const BlockSparseMatrix* A,
   // For rows with no e_blocks, the schur complement update reduces to
   // S += F'F.
   NoEBlockRowsUpdate(A, b,  uneliminated_row_begins_, lhs, rhs);
+
+#if 1 // JPB WIP BUG
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "false" );
+#endif
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -322,7 +339,17 @@ BackSubstitute(const BlockSparseMatrix* A,
                const double* z,
                double* y) {
   const CompressedRowBlockStructure* bs = A->block_structure();
-#pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
+#if 1
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "true" );
+  SetEnvironmentVariableA( "OMP_PLACES", "cores" );
+  int ncores = num_threads_;
+  if ( ncores > 1 ) {
+    ncores /= 4;
+  }
+  #pragma omp parallel for num_threads(ncores /*num_threads_*/) schedule(dynamic)
+#else
+  #pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
+#endif
   for (int i = 0; i < chunks_.size(); ++i) {
     const Chunk& chunk = chunks_[i];
     const int e_block_id = bs->rows[chunk.start].cells.front().block_id;
@@ -379,6 +406,10 @@ BackSubstitute(const BlockSparseMatrix* A,
     y_block = InvertPSDMatrix<kEBlockSize>(assume_full_rank_ete_, ete)
         * y_block;
   }
+
+#if 1 // JPB WIP BUG
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "false" );
+#endif
 }
 
 // Update the rhs of the reduced linear system. Compute
