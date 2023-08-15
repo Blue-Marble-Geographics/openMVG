@@ -339,7 +339,7 @@ BackSubstitute(const BlockSparseMatrix* A,
                const double* z,
                double* y) {
   const CompressedRowBlockStructure* bs = A->block_structure();
-#if 1
+#if 0 // JPB WIP Disabling for now
   SetEnvironmentVariableA( "OMP_PROC_BIND", "true" );
   SetEnvironmentVariableA( "OMP_PLACES", "cores" );
   int ncores = num_threads_;
@@ -407,7 +407,7 @@ BackSubstitute(const BlockSparseMatrix* A,
         * y_block;
   }
 
-#if 1 // JPB WIP BUG
+#if 0 // JPB WIP Disabling for now
   SetEnvironmentVariableA( "OMP_PROC_BIND", "false" );
 #endif
 }
