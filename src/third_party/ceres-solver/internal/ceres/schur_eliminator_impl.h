@@ -234,8 +234,6 @@ Eliminate(const BlockSparseMatrix* A,
   // block. EliminateRowOuterProduct does the corresponding operation
   // for the lhs of the reduced linear system.
 
-  const int cnt = chunks_.size();
-
   MatrixType matrix_type;
   if (typeid(*lhs) == typeid(BlockRandomAccessDenseMatrix)) {
     matrix_type = eDense;
@@ -247,7 +245,16 @@ Eliminate(const BlockSparseMatrix* A,
     throw "Unknown matrix lhs.";
   }
 
-#pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "true" );
+  SetEnvironmentVariableA( "OMP_PLACES", "cores" );
+  int ncores = num_threads_;
+  if ( ncores > 1 ) {
+    ncores /= 4;
+  }
+
+  const int cnt = chunks_.size();
+  
+#pragma omp parallel for num_threads(ncores) schedule(dynamic)
   for (int i = 0; i < cnt; ++i) {
 #ifdef CERES_USE_OPENMP
     int thread_id = omp_get_thread_num();
@@ -328,6 +335,9 @@ Eliminate(const BlockSparseMatrix* A,
   // For rows with no e_blocks, the schur complement update reduces to
   // S += F'F.
   NoEBlockRowsUpdate(A, b,  uneliminated_row_begins_, lhs, rhs);
+#if 1 // JPB WIP BUG
+  SetEnvironmentVariableA( "OMP_PROC_BIND", "false" );
+#endif
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
