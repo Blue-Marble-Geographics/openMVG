@@ -148,6 +148,8 @@ struct IntrinsicBase : public Clonable<IntrinsicBase>
   */
   virtual Mat3X operator () ( const Mat2X& p ) const = 0;
 
+  virtual Vec3 oneBearing( const Vec2& p ) const = 0;
+
   /**
   * @brief Transform a point from the camera plane to the image plane
   * @param p Camera plane point

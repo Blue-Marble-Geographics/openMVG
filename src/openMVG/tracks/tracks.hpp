@@ -42,6 +42,8 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -120,11 +122,156 @@ struct TracksBuilder
     }
   }
 
-  /// Remove bad tracks (too short or track with ids collision)
+  // Not a drop-in replacement for Set.
+  // Not fully featured.
+  template<class T, int N>
+  class SmallSet_t
+  {
+    int cnt_ = 0;
+    union HybridSet_t
+    {
+      std::unordered_set<T>* asSet_;
+      std::array<T, N>       asArray_;
+    } impl_;
+
+public:
+    ~SmallSet_t()
+    {
+      if (cnt_ > N)
+      {
+        delete impl_.asSet_;
+      }
+    }
+
+    int size() const { return cnt_; }
+
+    // Return false if element already exists.
+    std::pair<const T*, bool> insert( const T& item )
+    {
+      if (cnt_ <= N)
+      {
+        for (int i = 0; i < cnt_; ++i)
+        {
+          if (impl_.asArray_[ i ] == item)
+          {
+            return { &impl_.asArray_[ i ], false };
+          }
+        }
+
+        if (N == cnt_)
+        {
+          // Item is guaranteed to not be in set.
+          // Size will become N+1
+          PromoteToSet();
+
+          auto tmp = impl_.asSet_->insert(item);
+          cnt_ = impl_.asSet_->size();
+
+          return { &*tmp.first, tmp.second };
+        }
+        else
+        {
+          auto* ptr = &impl_.asArray_[cnt_++];
+          *ptr = item;
+          return { ptr, true };
+
+          // cnt_ may be N
+        }
+      }
+      else
+      {
+        // Size > N
+        auto tmp = impl_.asSet_->insert(item);
+        cnt_ = impl_.asSet_->size();
+
+        return std::make_pair(&*tmp.first, tmp.second);
+      }
+    }
+
+    void remove( const T& item )
+    {
+
+    }
+
+  private:
+    void PromoteToSet()
+    {
+      impl_.asSet_ = new std::unordered_set<T>();
+      for (const auto& i : impl_.asArray_)
+      {
+        impl_.asSet_->insert(i);
+      }
+    }
+
+    void DemoteToArray()
+    {
+    }
+  };
+
+  // Not a drop-in replacement for Map.
+  // Not fully featured.
+  template<class T>
+  class HashMap
+  {
+  public:
+    HashMap( size_t cnt )
+    {
+      nodes_.resize( cnt, std::make_pair( 0xFFFFFFFF, T() ) );
+    }
+
+    auto& operator[]( size_t index )
+    {
+      const auto numNodes = nodes_.size();
+
+      auto hashIndex = hash(index) % numNodes;
+      while (1)
+      {
+        auto& node = nodes_[hashIndex];
+        if (node.first == index)
+        {
+          return nodes_[hashIndex].second;
+        }
+        else if (0xFFFFFFFF == node.first)
+        {
+          node.first = index;
+          return nodes_[hashIndex].second;
+        }
+        ++hashIndex;
+        if (hashIndex >= numNodes) {
+          hashIndex = 0;
+        }
+      }
+    }
+
+    auto begin() const
+    {
+      return std::begin(nodes_);
+    }
+
+    auto end() const
+    {
+      return std::end(nodes_);
+    }
+
+  private:
+    unsigned int hash(unsigned int x) {
+      x = ((x >> 16) ^ x) * 0x45d9f3b;
+      x = ((x >> 16) ^ x) * 0x45d9f3b;
+      x = (x >> 16) ^ x;
+      return x;
+    }
+
+    std::vector<std::pair<uint32_t, T>> nodes_; // uint32_t and small set
+  };
+
+
+  // Remove bad tracks (too short or track with ids collision)
   bool Filter(uint32_t nLengthSupTo = 2)
   {
     // Build the Track observations & mark tracks that have id collision:
-    std::map<uint32_t, std::set<uint32_t>> tracks; // {track_id, {image_id, image_id, ...}}
+    //std::map<uint32_t, std::set<uint32_t>> tracks; // {track_id, {image_id, image_id, ...}}
+
+    HashMap<SmallSet_t<uint32_t,8>> tracks(map_node_to_index.size()*2); // {track_id, {image_id, image_id, ...}}
     std::set<uint32_t> problematic_track_id; // {track_id, ...}
 
     // For each node retrieve its track id from the UF tree and add the node to the track
@@ -145,7 +292,7 @@ struct TracksBuilder
     // Reject tracks that have too few observations
     for (const auto & val : tracks)
     {
-      if (val.second.size() < nLengthSupTo)
+      if (val.first != 0xFFFFFFFF && val.second.size() < nLengthSupTo)
       {
         problematic_track_id.insert(val.first);
       }

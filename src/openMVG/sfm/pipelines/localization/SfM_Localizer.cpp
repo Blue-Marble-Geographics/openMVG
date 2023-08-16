@@ -75,10 +75,12 @@ public:
 
     const bool ignore_distortion = true; // We ignore distortion since we are using undistorted bearing vector as input
 
-    for (Mat::Index sample = 0; sample < x2d_.cols(); ++sample)
+    for (Mat::Index sample = 0, cnt = x2d_.cols(); sample < cnt; ++sample)
     {
-      vec_errors[sample] = (camera_->residual(pose(x3D_.col(sample)),
-                              x2d_.col(sample),
+      const Vec3& sample3D = x3D_.col(sample);
+      const Vec2& sample2D = x2d_.col(sample);
+      vec_errors[sample] = (camera_->residual(pose(sample3D),
+                              sample2D,
                               ignore_distortion) * N1_(0,0)).squaredNorm();
     }
   }
@@ -95,7 +97,8 @@ public:
   double unormalizeError(double val) const {return sqrt(val) / N1_(0,0);}
 
 private:
-  Mat x2d_, bearing_vectors_;
+  const Mat& x2d_;
+  Mat bearing_vectors_;
   const Mat & x3D_;
   Mat3 N1_;
   double logalpha0_;  // Alpha0 is used to make the error adaptive to the image size
