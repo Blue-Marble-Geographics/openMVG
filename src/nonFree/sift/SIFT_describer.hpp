@@ -9,6 +9,8 @@
 #ifndef OPENMVG_PATENTED_SIFT_SIFT_DESCRIBER_HPP
 #define OPENMVG_PATENTED_SIFT_SIFT_DESCRIBER_HPP
 
+#include "P2PUtils.h"
+
 #include "openMVG/features/image_describer.hpp"
 #include "openMVG/features/regions_factory.hpp"
 #include "openMVG/image/image_container.hpp"
@@ -176,9 +178,11 @@ public:
       // Update gradient before launching parallel extraction
       vl_sift_update_gradient(filt);
 
+#if PARALLEL_KEYPOINT_GENERATION
       #ifdef OPENMVG_USE_OPENMP
       #pragma omp parallel for private(descr, descriptor)
       #endif
+#endif
       for (int i = 0; i < nkeys; ++i) {
 
         // Feature masking
@@ -202,9 +206,11 @@ public:
             keys[i].sigma, static_cast<float>(angles[q]));
 
           siftDescToUChar(&descr[0], descriptor, _params._root_sift);
+#if PARALLEL_KEYPOINT_GENERATION
           #ifdef OPENMVG_USE_OPENMP
           #pragma omp critical
           #endif
+#endif
           {
             regions->Descriptors().push_back(descriptor);
             regions->Features().push_back(fp);

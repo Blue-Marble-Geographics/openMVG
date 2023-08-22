@@ -77,14 +77,14 @@ VisibilityBasedPreconditioner::VisibilityBasedPreconditioner(
   CHECK_GT(options_.elimination_groups[0], 0);
   CHECK(options_.type == CLUSTER_JACOBI || options_.type == CLUSTER_TRIDIAGONAL)
       << "Unknown preconditioner type: " << options_.type;
-  num_blocks_ = bs.cols.size() - options_.elimination_groups[0];
+  num_blocks_ = bs.col_sizes.size() - options_.elimination_groups[0];
   CHECK_GT(num_blocks_, 0) << "Jacobian should have atleast 1 f_block for "
                            << "visibility based preconditioning.";
 
   // Vector of camera block sizes
   block_size_.resize(num_blocks_);
   for (int i = 0; i < num_blocks_; ++i) {
-    block_size_[i] = bs.cols[i + options_.elimination_groups[0]].size;
+    block_size_[i] = bs.col_sizes[i + options_.elimination_groups[0]];
   }
 
   const time_t start_time = time(NULL);

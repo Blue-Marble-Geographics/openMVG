@@ -15,6 +15,8 @@ the terms of the BSD license (see the COPYING file).
 #ifndef VL_MATHOP_SSE2_INSTANTIATING
 #define VL_MATHOP_SSE2_INSTANTIATING
 
+#include "../../../P2PUtils.h"
+
 #ifndef VL_DISABLE_SSE2
 #ifndef __SSE2__
 #  error "mathop_sse2.c must be compiled with SSE2 intrinsics enabled"

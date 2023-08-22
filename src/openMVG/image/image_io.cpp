@@ -61,7 +61,8 @@ int ReadImage(const char *filename,
               std::vector<unsigned char> * ptr,
               int * w,
               int * h,
-              int * depth){
+              int * depth,
+              bool grayConvert ){
   const Format f = GetFormat(filename);
 
   switch (f) {
@@ -70,7 +71,7 @@ int ReadImage(const char *filename,
     case Png:
       return ReadPng(filename, ptr, w, h, depth);
     case Jpg:
-      return ReadJpg(filename, ptr, w, h, depth);
+      return ReadJpg(filename, ptr, w, h, depth, grayConvert);
     case Tiff:
       return ReadTiff(filename, ptr, w, h, depth);
     default:
@@ -103,14 +104,15 @@ int ReadJpg(const char * filename,
             std::vector<unsigned char> * ptr,
             int * w,
             int * h,
-            int * depth) {
+            int * depth,
+            bool grayConvert) {
 
   FILE *file = fopen(filename, "rb");
   if (!file) {
     OPENMVG_LOG_ERROR << "Couldn't open " << filename << " fopen returned 0";
     return 0;
   }
-  const int res = ReadJpgStream(file, ptr, w, h, depth);
+  const int res = ReadJpgStream(file, ptr, w, h, depth, grayConvert);
   fclose(file);
   return res;
 }
@@ -132,7 +134,8 @@ int ReadJpgStream(FILE * file,
                   std::vector<unsigned char> * ptr,
                   int * w,
                   int * h,
-                  int * depth) {
+                  int * depth,
+                  bool grayConvert) {
   jpeg_decompress_struct cinfo;
   struct my_error_mgr jerr;
   cinfo.err = jpeg_std_error(&jerr.pub);
@@ -147,21 +150,56 @@ int ReadJpgStream(FILE * file,
   jpeg_create_decompress(&cinfo);
   jpeg_stdio_src(&cinfo, file);
   jpeg_read_header(&cinfo, TRUE);
+#if 0 // Slower
+  if (grayConvert) {
+    cinfo.out_color_space = JCS_GRAYSCALE;
+  }
+#endif
   jpeg_start_decompress(&cinfo);
 
-  const int row_stride = cinfo.output_width * cinfo.output_components;
+  *depth = grayConvert ? 1 : cinfo.output_components;
+  const int row_stride = cinfo.output_width * *depth;
 
   *h = cinfo.output_height;
   *w = cinfo.output_width;
-  *depth = cinfo.output_components;
   ptr->resize((*h)*(*w)*(*depth));
 
+  if (grayConvert) {
+    auto asRGBN = std::unique_ptr<uint8_t[]>(new uint8_t[*w*cinfo.output_components]);
+    auto* dst = ptr->data();
+    while (cinfo.output_scanline < cinfo.output_height) {
+      JSAMPROW scanline[1] = { asRGBN.get() };
+      jpeg_read_scanlines(&cinfo, scanline, 1);
+      // Convert to gray
+      const auto* src = asRGBN.get();
+      switch(cinfo.output_components)
+      {
+        case 3:
+          for (int i = 0, cnt = cinfo.output_width; i != cnt; ++i, src += 3) {
+            // Even casting these constants to float changes the result significantly.
+            dst[i] = static_cast<unsigned char>( 0.3 * src[0] + 0.59 * src[1] + 0.11 * src[2] );
+          }
+          break;
+        case 4:
+          for (int i = 0, cnt = cinfo.output_width; i != cnt; ++i, src += 4) {
+            dst[i] = static_cast<unsigned char>( 0.3 * src[0] + 0.59 * src[1] + 0.11 * src[2], src[3] / 255.f );
+          }
+          break;
+        case 1:
+          std::copy(src, src + cinfo.output_width, dst);
+          break;
+      }
+
+      dst += row_stride;
+    }
+  } else {
   unsigned char *ptrCpy = &(*ptr)[0];
 
   while (cinfo.output_scanline < cinfo.output_height) {
     JSAMPROW scanline[1] = { ptrCpy };
     jpeg_read_scanlines(&cinfo, scanline, 1);
     ptrCpy += row_stride;
+    }
   }
 
   jpeg_finish_decompress(&cinfo);

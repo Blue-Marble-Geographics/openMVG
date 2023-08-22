@@ -96,7 +96,7 @@ class VertexDegreeLessThan {
 template <typename Vertex>
 int IndependentSetOrdering(const Graph<Vertex>& graph,
                            std::vector<Vertex>* ordering) {
-  const HashSet<Vertex>& vertices = graph.vertices();
+  const HashMap<Vertex, HashSet<Vertex> >& vertices = graph.vertices();
   const int num_vertices = vertices.size();
 
   CHECK_NOTNULL(ordering);
@@ -111,11 +111,11 @@ int IndependentSetOrdering(const Graph<Vertex>& graph,
   // Mark all vertices white.
   HashMap<Vertex, char> vertex_color;
   std::vector<Vertex> vertex_queue;
-  for (typename HashSet<Vertex>::const_iterator it = vertices.begin();
+  for (auto it = vertices.begin();
        it != vertices.end();
        ++it) {
-    vertex_color[*it] = kWhite;
-    vertex_queue.push_back(*it);
+    vertex_color[it->first] = kWhite;
+    vertex_queue.push_back(it->first);
   }
 
 
@@ -238,7 +238,7 @@ template <typename Vertex>
 int StableIndependentSetOrderingFaster(const Graph<Vertex>& graph,
   std::vector<Vertex>* ordering) {
   CHECK_NOTNULL(ordering);
-  const HashSet<Vertex>& vertices = graph.vertices();
+  const HashMap<Vertex, HashSet<Vertex> >& vertices = graph.vertices();
   const int num_vertices = vertices.size();
   CHECK_EQ(vertices.size(), ordering->size());
 
@@ -289,10 +289,10 @@ int StableIndependentSetOrderingFaster(const Graph<Vertex>& graph,
   // Mark all vertices white.
   HashMap<Vertex, char> vertex_color;
   vertex_color.reserve(vertices.size());
-  for (typename HashSet<Vertex>::const_iterator it = vertices.begin();
+  for (auto it = vertices.begin();
     it != vertices.end();
     ++it) {
-    vertex_color[*it] = kWhite;
+    vertex_color[it->first] = kWhite;
   }
 
   ordering->clear();

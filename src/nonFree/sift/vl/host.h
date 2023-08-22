@@ -319,7 +319,7 @@ defined(__DOXYGEN__)
 
 #if defined(VL_COMPILER_MSC) & ! defined(__DOXYGEN__)
 #  define VL_UNUSED
-#  define VL_INLINE static __inline
+#  define VL_INLINE static __forceinline
 #if _MSC_VER < 1900
 #  define snprintf _snprintf
 #endif

@@ -161,16 +161,11 @@ LinearSolver::Summary SchurComplementSolver::SolveImpl(
 void DenseSchurComplementSolver::InitStorage(
     const CompressedRowBlockStructure* bs) {
   const int num_eliminate_blocks = options().elimination_groups[0];
-  const int num_col_blocks = bs->cols.size();
+  const int num_col_blocks = bs->col_sizes.size();
 
-  vector<int> blocks(num_col_blocks - num_eliminate_blocks, 0);
-  for (int i = num_eliminate_blocks, j = 0;
-       i < num_col_blocks;
-       ++i, ++j) {
-    blocks[j] = bs->cols[i].size;
-  }
-
-  set_lhs(new BlockRandomAccessDenseMatrix(blocks));
+  const int* first_block = bs->col_sizes.data() + num_eliminate_blocks;
+  const int num_blocks = num_col_blocks - num_eliminate_blocks;
+  set_lhs(new BlockRandomAccessDenseMatrix(first_block, num_blocks));
   set_rhs(new double[lhs()->num_rows()]);
 }
 
@@ -241,12 +236,12 @@ SparseSchurComplementSolver::~SparseSchurComplementSolver() {
 void SparseSchurComplementSolver::InitStorage(
     const CompressedRowBlockStructure* bs) {
   const int num_eliminate_blocks = options().elimination_groups[0];
-  const int num_col_blocks = bs->cols.size();
+  const int num_col_blocks = bs->col_sizes.size();
   const int num_row_blocks = bs->rows.size();
 
   blocks_.resize(num_col_blocks - num_eliminate_blocks, 0);
   for (int i = num_eliminate_blocks; i < num_col_blocks; ++i) {
-    blocks_[i - num_eliminate_blocks] = bs->cols[i].size;
+    blocks_[i - num_eliminate_blocks] = bs->col_sizes[i];
   }
 
   set<pair<int, int> > block_pairs;

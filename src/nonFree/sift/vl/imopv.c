@@ -42,9 +42,11 @@ the terms of the BSD license (see the COPYING file).
 #define VL_IMOPV_INSTANTIATING
 #include "imopv.c"
 
+#if 0
 #define FLT VL_TYPE_DOUBLE
 #define VL_IMOPV_INSTANTIATING
 #include "imopv.c"
+#endif
 
 #define FLT VL_TYPE_UINT32
 #define VL_IMOPV_INSTANTIATING

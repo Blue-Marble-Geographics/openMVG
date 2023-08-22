@@ -52,25 +52,21 @@ class Graph {
 
   // Add a vertex.
   void AddVertex(const Vertex& vertex) {
-    if (vertices_.insert(vertex).second) {
-      edges_[vertex] = HashSet<Vertex>();
-    }
+    edges_.try_emplace(vertex);
   }
 
   void Reserve( size_t numVertices )
   {
-    vertices_.reserve( numVertices );
+    edges_.reserve( numVertices );
   }
 
   bool RemoveVertex(const Vertex& vertex) {
-    if (vertices_.find(vertex) == vertices_.end()) {
+    auto itEdge = edges_.find(vertex);
+    if (itEdge == std::end(edges_)) {
       return false;
     }
-
-    vertices_.erase(vertex);
-    const HashSet<Vertex>& sinks = edges_[vertex];
-    for (typename HashSet<Vertex>::const_iterator it = sinks.begin();
-         it != sinks.end(); ++it) {
+    const auto& sinks = itEdge->second;
+    for (auto it = sinks.begin(); it != sinks.end(); ++it) {
       edges_[*it].erase(vertex);
     }
 
@@ -85,8 +81,8 @@ class Graph {
   // It is legal to call this method repeatedly for the same set of
   // vertices.
   void AddEdge(const Vertex& vertex1, const Vertex& vertex2) {
-    DCHECK(vertices_.find(vertex1) != vertices_.end());
-    DCHECK(vertices_.find(vertex2) != vertices_.end());
+    DCHECK(edges_.find(vertex1) != edges_.end());
+    DCHECK(edges_.find(vertex2) != edges_.end());
 
     if (edges_[vertex1].insert(vertex2).second) {
       edges_[vertex2].insert(vertex1);
@@ -99,15 +95,12 @@ class Graph {
     return FindOrDie(edges_, vertex);
   }
 
-  const HashSet<Vertex>& vertices() const {
-    return vertices_;
+  const HashMap<Vertex, HashSet<Vertex> >& vertices() const {
+    return edges_;
   }
 
  private:
-  HashSet<Vertex> vertices_;
   HashMap<Vertex, HashSet<Vertex> > edges_;
-
-  CERES_DISALLOW_COPY_AND_ASSIGN(Graph);
 };
 
 // A weighted undirected graph templated over the vertex ids. Vertex

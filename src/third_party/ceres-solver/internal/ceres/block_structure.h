@@ -83,7 +83,8 @@ typedef CompressedList CompressedRow;
 typedef CompressedList CompressedColumn;
 
 struct CompressedRowBlockStructure {
-  std::vector<Block> cols;
+  std::vector<BlockSize> col_sizes;
+  std::vector<int> col_positions;
   std::vector<CompressedRow> rows;
 };
 

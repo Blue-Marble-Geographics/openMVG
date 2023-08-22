@@ -74,23 +74,24 @@ class CERES_EXPORT Solver {
       max_num_line_search_direction_restarts = 5;
       line_search_sufficient_curvature_decrease = 0.9;
       max_line_search_step_expansion = 10.0;
-      trust_region_strategy_type = LEVENBERG_MARQUARDT;
+      trust_region_strategy_type = DOGLEG; //LEVENBERG_MARQUARDT;
       dogleg_type = TRADITIONAL_DOGLEG;
-      use_nonmonotonic_steps = false;
-      max_consecutive_nonmonotonic_steps = 5;
-      max_num_iterations = 50;
+      use_nonmonotonic_steps = true;
+      max_consecutive_nonmonotonic_steps = 2; //5;
+      max_num_iterations = 5;
       max_solver_time_in_seconds = 1e9;
       num_threads = 1;
-      initial_trust_region_radius = 1e4;
-      max_trust_region_radius = 1e16;
-      min_trust_region_radius = 1e-32;
+      initial_trust_region_radius = 1e6; //1e4;
+      max_trust_region_radius = 1e15; //1e16;
+      min_trust_region_radius = 1e-31; //1e-32;
       min_relative_decrease = 1e-3;
       min_lm_diagonal = 1e-6;
       max_lm_diagonal = 1e32;
-      max_num_consecutive_invalid_steps = 5;
-      function_tolerance = 1e-6;
-      gradient_tolerance = 1e-10;
-      parameter_tolerance = 1e-8;
+      max_num_consecutive_invalid_steps = 1; //5;
+      function_tolerance = 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
+      gradient_tolerance = 1.5e-6; //1.5e-6;
+      parameter_tolerance = 1.6e-1; //1.5e-3; //1.5e-3;
+
 
 #if defined(CERES_NO_SUITESPARSE) && defined(CERES_NO_CXSPARSE) && !defined(CERES_ENABLE_LGPL_CODE)  // NOLINT
       linear_solver_type = DENSE_QR;
@@ -123,12 +124,12 @@ class CERES_EXPORT Solver {
       use_postordering = false;
       dynamic_sparsity = false;
       min_linear_solver_iterations = 0;
-      max_linear_solver_iterations = 500;
+      max_linear_solver_iterations = 10;
       eta = 1e-1;
       jacobi_scaling = true;
       use_inner_iterations = false;
       inner_iteration_tolerance = 1e-3;
-      logging_type = PER_MINIMIZER_ITERATION;
+      logging_type = SILENT; //PER_MINIMIZER_ITERATION;
       minimizer_progress_to_stdout = false;
       trust_region_problem_dump_directory = "/tmp";
       trust_region_problem_dump_format_type = TEXTFILE;

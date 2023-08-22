@@ -36,6 +36,13 @@ namespace openMVG {
     Vec4 *X
   );
 
+  bool TriangulateNViewAlgebraic2
+  (
+    const Mat3X &x, // x's are landmark bearing vectors in each camera
+    const Mat34 *Ps, // Ps are projective cameras.
+    Vec4 *X
+  );
+
 }  // namespace openMVG
 
 #endif  // OPENMVG_MULTIVIEW_TRIANGULATION_NVIEW_HPP

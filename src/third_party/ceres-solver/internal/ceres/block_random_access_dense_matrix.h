@@ -56,7 +56,7 @@ class BlockRandomAccessDenseMatrix : public BlockRandomAccessMatrix {
  public:
   // blocks is a vector of block sizes. The resulting matrix has
   // blocks.size() * blocks.size() cells.
-  explicit BlockRandomAccessDenseMatrix(const std::vector<int>& blocks);
+  explicit BlockRandomAccessDenseMatrix(const int* first, int num_blocks);
 
   // The destructor is not thread safe. It assumes that no one is
   // modifying any cells when the matrix is being destroyed.
@@ -69,6 +69,23 @@ class BlockRandomAccessDenseMatrix : public BlockRandomAccessMatrix {
                             int* col,
                             int* row_stride,
                             int* col_stride);
+
+
+  CellInfo* GetCellHelped(CellInfoHelper& cih,
+                          const int col_block_id) override {
+    // r_ is constant
+    cih.c_ = block_layout_[col_block_id];
+    // row_stride_ and col_stride_ constant
+    return &cell_infos_[cih.addr_ + col_block_id];
+  }
+
+  void PrepareGetCellHelper(CellInfoHelper& cih,
+                            const int row_block_id) override {
+    cih.r_ = block_layout_[row_block_id];
+    cih.addr_ = row_block_id * block_layout_.size();
+    cih.row_stride_ = num_rows_;
+    cih.col_stride_ = num_rows_;
+  }
 
   // This is not a thread safe method, it assumes that no cell is
   // locked.

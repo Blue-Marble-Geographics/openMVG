@@ -58,7 +58,7 @@ void ComputeVisibility(const CompressedRowBlockStructure& block_structure,
   // Clear the visibility vector and resize it to hold a
   // vector for each camera.
   visibility->resize(0);
-  visibility->resize(block_structure.cols.size() - num_eliminate_blocks);
+  visibility->resize(block_structure.col_sizes.size() - num_eliminate_blocks);
 
   for (int i = 0; i < block_structure.rows.size(); ++i) {
     const vector<Cell>& cells = block_structure.rows[i].cells;
