@@ -56,7 +56,7 @@ class BlockRandomAccessDenseMatrix : public BlockRandomAccessMatrix {
  public:
   // blocks is a vector of block sizes. The resulting matrix has
   // blocks.size() * blocks.size() cells.
-  explicit BlockRandomAccessDenseMatrix(const int* first, int num_blocks);
+  explicit BlockRandomAccessDenseMatrix(const std::vector<int>& blocks);
 
   // The destructor is not thread safe. It assumes that no one is
   // modifying any cells when the matrix is being destroyed.

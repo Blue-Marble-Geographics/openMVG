@@ -117,7 +117,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
       break;
     }
 
-    chunks_.emplace_back();
+    chunks_.push_back(Chunk());
     Chunk& chunk = chunks_.back();
     chunk.size = 0;
     chunk.start = r;
@@ -126,7 +126,6 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
 
     // Add to the chunk until the first block in the row is
     // different than the one in the first row for the chunk.
-    //chunk.buffer_layout.reserve((num_row_blocks - r) * bs->rows[r].cells.size());
     while (r + chunk.size < num_row_blocks) {
       const CompressedRow& row = bs->rows[r + chunk.size];
       if (row.cells.front().block_id != chunk_block_id) {

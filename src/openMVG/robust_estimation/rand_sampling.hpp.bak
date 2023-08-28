@@ -57,6 +57,34 @@ inline void UniformSample
   }
 }
 
+template <class RandomGeneratorT, typename SamplingType>
+inline size_t UniformSample2
+(
+  const uint32_t num_samples,
+  const uint32_t total_samples,
+  RandomGeneratorT &random_generator,
+  SamplingType *samples
+)
+{
+  static_assert(std::is_integral<SamplingType>::value, "SamplingType must be an integral type");
+
+  std::uniform_int_distribution<SamplingType> distribution(0, total_samples-1);
+  auto cur = samples;
+  auto last = samples + num_samples;
+  while (cur != last) {
+    const auto sample = distribution(random_generator);
+    bool bFound = false;
+    for (auto* t = samples; t != cur && !bFound; ++t) {
+      bFound = *t == sample;
+    }
+    if (!bFound) {
+      *cur++ = sample;
+    }
+  }
+
+  return cur-samples;
+}
+
 /**
 * Pick n random sample from an array of indices.
 * Use a Fisher Yates sampling (shuffling) to avoid picking the same index many time.

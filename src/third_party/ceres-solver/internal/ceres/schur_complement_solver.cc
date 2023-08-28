@@ -163,9 +163,14 @@ void DenseSchurComplementSolver::InitStorage(
   const int num_eliminate_blocks = options().elimination_groups[0];
   const int num_col_blocks = bs->col_sizes.size();
 
-  const int* first_block = bs->col_sizes.data() + num_eliminate_blocks;
-  const int num_blocks = num_col_blocks - num_eliminate_blocks;
-  set_lhs(new BlockRandomAccessDenseMatrix(first_block, num_blocks));
+  vector<int> blocks(num_col_blocks - num_eliminate_blocks, 0);
+  for (int i = num_eliminate_blocks, j = 0;
+       i < num_col_blocks;
+       ++i, ++j) {
+    blocks[j] = bs->col_sizes[i];
+  }
+
+  set_lhs(new BlockRandomAccessDenseMatrix(blocks));
   set_rhs(new double[lhs()->num_rows()]);
 }
 

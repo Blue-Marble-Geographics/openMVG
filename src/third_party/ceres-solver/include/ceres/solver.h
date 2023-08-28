@@ -92,6 +92,7 @@ class CERES_EXPORT Solver {
       gradient_tolerance = 1e-6;
       parameter_tolerance = 1e-3;
 
+
 #if defined(CERES_NO_SUITESPARSE) && defined(CERES_NO_CXSPARSE) && !defined(CERES_ENABLE_LGPL_CODE)  // NOLINT
       linear_solver_type = DENSE_QR;
 #else

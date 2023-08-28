@@ -51,27 +51,24 @@ int ComputeStableSchurOrdering(const Program& program,
                          vector<ParameterBlock*>* ordering) {
   CHECK_NOTNULL(ordering)->clear();
   EventLogger event_logger("ComputeStableSchurOrdering");
-  Graph< ParameterBlock*> graph(CreateHessianGraph(program));
+  scoped_ptr<Graph< ParameterBlock*> > graph(CreateHessianGraph(program));
   event_logger.AddEvent("CreateHessianGraph");
 
   const vector<ParameterBlock*>& parameter_blocks = program.parameter_blocks();
-  const size_t cnt = parameter_blocks.size();
-  ordering->reserve(cnt*2);
-
-  const auto& vertices = graph.vertices();
-  const auto last = vertices.end();
-  for (const auto& __restrict parameter_block : parameter_blocks) {
-    if (vertices.find(parameter_block) != last) {
-      ordering->push_back(parameter_block);
+  const HashSet<ParameterBlock*>& vertices = graph->vertices();
+  for (int i = 0; i < parameter_blocks.size(); ++i) {
+    if (vertices.count(parameter_blocks[i]) > 0) {
+      ordering->push_back(parameter_blocks[i]);
     }
   }
   event_logger.AddEvent("Preordering");
 
-  int independent_set_size = StableIndependentSetOrderingFaster(graph, ordering);
+  int independent_set_size = StableIndependentSetOrdering(*graph, ordering);
   event_logger.AddEvent("StableIndependentSet");
 
   // Add the excluded blocks to back of the ordering vector.
-  for (const auto& __restrict parameter_block : parameter_blocks) {
+  for (int i = 0; i < parameter_blocks.size(); ++i) {
+    ParameterBlock* parameter_block = parameter_blocks[i];
     if (parameter_block->IsConstant()) {
       ordering->push_back(parameter_block);
     }
@@ -85,8 +82,8 @@ int ComputeSchurOrdering(const Program& program,
                          vector<ParameterBlock*>* ordering) {
   CHECK_NOTNULL(ordering)->clear();
 
-  Graph< ParameterBlock*> graph(CreateHessianGraph(program));
-  int independent_set_size = IndependentSetOrdering(graph, ordering);
+  scoped_ptr<Graph< ParameterBlock*> > graph(CreateHessianGraph(program));
+  int independent_set_size = IndependentSetOrdering(*graph, ordering);
   const vector<ParameterBlock*>& parameter_blocks = program.parameter_blocks();
 
   // Add the excluded blocks to back of the ordering vector.
@@ -104,54 +101,51 @@ void ComputeRecursiveIndependentSetOrdering(const Program& program,
                                             ParameterBlockOrdering* ordering) {
   CHECK_NOTNULL(ordering)->Clear();
   const vector<ParameterBlock*> parameter_blocks = program.parameter_blocks();
-  Graph< ParameterBlock*> graph(CreateHessianGraph(program));
+  scoped_ptr<Graph< ParameterBlock*> > graph(CreateHessianGraph(program));
 
   int num_covered = 0;
   int round = 0;
   while (num_covered < parameter_blocks.size()) {
     vector<ParameterBlock*> independent_set_ordering;
     const int independent_set_size =
-        IndependentSetOrdering(graph, &independent_set_ordering);
+        IndependentSetOrdering(*graph, &independent_set_ordering);
     for (int i = 0; i < independent_set_size; ++i) {
       ParameterBlock* parameter_block = independent_set_ordering[i];
       ordering->AddElementToGroup(parameter_block->mutable_user_state(), round);
-      graph.RemoveVertex(parameter_block);
+      graph->RemoveVertex(parameter_block);
     }
     num_covered += independent_set_size;
     ++round;
   }
 }
 
-Graph<ParameterBlock*> CreateHessianGraph(const Program& program) {
-  Graph<ParameterBlock*> graph;
-
+Graph<ParameterBlock*>* CreateHessianGraph(const Program& program) {
+  Graph<ParameterBlock*>* graph = CHECK_NOTNULL(new Graph<ParameterBlock*>);
   const vector<ParameterBlock*>& parameter_blocks = program.parameter_blocks();
-  const size_t cnt = parameter_blocks.size();
-  graph.Reserve(cnt);
-
-  for (const auto& __restrict parameter_block : parameter_blocks) {
+  for (int i = 0; i < parameter_blocks.size(); ++i) {
+    ParameterBlock* parameter_block = parameter_blocks[i];
     if (!parameter_block->IsConstant()) {
-      graph.AddVertex(parameter_block);
+      graph->AddVertex(parameter_block);
     }
   }
 
-  for (const auto& __restrict residual_block : program.residual_blocks()) {
+  const vector<ResidualBlock*>& residual_blocks = program.residual_blocks();
+  for (int i = 0; i < residual_blocks.size(); ++i) {
+    const ResidualBlock* residual_block = residual_blocks[i];
     const int num_parameter_blocks = residual_block->NumParameterBlocks();
     ParameterBlock* const* parameter_blocks =
         residual_block->parameter_blocks();
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      const auto& __restrict parameter_block_j = parameter_blocks[j];
-      if (parameter_block_j->IsConstant()) {
+      if (parameter_blocks[j]->IsConstant()) {
         continue;
       }
 
       for (int k = j + 1; k < num_parameter_blocks; ++k) {
-        const auto& __restrict parameter_block_k = parameter_blocks[k];
-        if (parameter_block_k->IsConstant()) {
+        if (parameter_blocks[k]->IsConstant()) {
           continue;
         }
 
-        graph.AddEdge(parameter_block_j, parameter_block_k);
+        graph->AddEdge(parameter_blocks[j], parameter_blocks[k]);
       }
     }
   }

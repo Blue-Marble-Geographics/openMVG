@@ -67,15 +67,14 @@ void BuildJacobianLayout(const Program& program,
   // matrix. Also compute the number of jacobian blocks.
   int f_block_pos = 0;
   int num_jacobian_blocks = 0;
-  for (const auto& __restrict residual_block : residual_blocks) {
+  for (int i = 0; i < residual_blocks.size(); ++i) {
+    ResidualBlock* residual_block = residual_blocks[i];
     const int num_residuals = residual_block->NumResiduals();
     const int num_parameter_blocks = residual_block->NumParameterBlocks();
-    ParameterBlock* const* pbFirst = residual_block->parameter_blocks();
-    ParameterBlock* const* pbLast = pbFirst + num_parameter_blocks;
 
     // Advance f_block_pos over each E block for this residual.
-    for (auto it = pbFirst; it != pbLast; ++it) {
-      ParameterBlock* parameter_block = *it;
+    for (int j = 0; j < num_parameter_blocks; ++j) {
+      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
       if (!parameter_block->IsConstant()) {
         // Only count blocks for active parameters.
         num_jacobian_blocks++;

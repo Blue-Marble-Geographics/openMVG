@@ -245,7 +245,6 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   const vector<int32>& parameter_block_sizes =
       cost_function->parameter_block_sizes();
 
-#if 0 // JPB WIP BUG Remove this one.
   if (!options_.disable_all_safety_checks) {
     CHECK_EQ(parameter_block_sizes.size(), parameter_blocks.size())
         << "Number of blocks input is different than the number of blocks "
@@ -269,7 +268,6 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
                  << blocks << "]";
     }
   }
-#endif
 
   // Add parameter blocks and convert the double*'s to parameter blocks.
   vector<ParameterBlock*> parameter_block_ptrs(parameter_blocks.size());
