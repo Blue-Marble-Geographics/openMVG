@@ -89,9 +89,10 @@ class CERES_EXPORT Solver {
       max_lm_diagonal = 1e32;
       max_num_consecutive_invalid_steps = 1; //5;
       // not good 0.89453e-1
-      // 0.04522655f
+      // 0.04522655f (50%)
+      // 0.067339825 (75%)
       // pass 1.5e-3
-      function_tolerance = 0.04522655f;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
+      function_tolerance = 0.067339825f;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
       gradient_tolerance = 1.5e-6; //1.5e-6;
       parameter_tolerance = 1.6e-1; //1.5e-3; //1.5e-3;
 
@@ -126,7 +127,7 @@ class CERES_EXPORT Solver {
       use_postordering = false;
       dynamic_sparsity = false;
       min_linear_solver_iterations = 0;
-      max_linear_solver_iterations = 250; // Was 10 for very aggressive fail.
+      max_linear_solver_iterations = 500; //250; // Was 10 for very aggressive fail.
       eta = 1e-1;
       jacobi_scaling = true;
       use_inner_iterations = false;
