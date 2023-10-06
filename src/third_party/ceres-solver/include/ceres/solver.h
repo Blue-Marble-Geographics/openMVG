@@ -89,11 +89,11 @@ class CERES_EXPORT Solver {
       max_lm_diagonal = 1e32;
       max_num_consecutive_invalid_steps = 1; //5;
       // not good 0.89453e-1 (0.089453f)
-      // 0.023363275f (25%)
+      // 0.023363275f (25%) passes
       // 0.04522655f (50%)
       // 0.067339825 (75%)
       // pass 1.5e-3 (0.0015)
-      function_tolerance = 0.023363275f;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
+      function_tolerance = 0.0342949125;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
       gradient_tolerance = 1.5e-6; //1.5e-6;
       parameter_tolerance = 1.6e-1; //1.5e-3; //1.5e-3;
 
@@ -105,7 +105,7 @@ class CERES_EXPORT Solver {
 
       preconditioner_type = JACOBI;
       visibility_clustering_type = CANONICAL_VIEWS;
-      dense_linear_algebra_library_type = EIGEN;
+      dense_linear_algebra_library_type = EIGEN; // JPB WIP BUG Must be built with LAPACK to work.
 
       // Choose a default sparse linear algebra library in the order:
       //
@@ -128,10 +128,11 @@ class CERES_EXPORT Solver {
       use_postordering = false;
       dynamic_sparsity = false;
       min_linear_solver_iterations = 0;
+      // 100 is noticably faster, but slightly lower quality.
       max_linear_solver_iterations = 500; //250; // Was 10 for very aggressive fail.
       eta = 1e-1;
       jacobi_scaling = true;
-      use_inner_iterations = false;
+      use_inner_iterations = false; // JPB WIP BUG Quality better but swells the execution time;
       inner_iteration_tolerance = 1e-3;
       logging_type = SILENT; //PER_MINIMIZER_ITERATION;
       minimizer_progress_to_stdout = false;
