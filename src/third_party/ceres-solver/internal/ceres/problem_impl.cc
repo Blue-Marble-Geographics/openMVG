@@ -56,6 +56,8 @@
 #include "ceres/stringprintf.h"
 #include "glog/logging.h"
 
+#include "ceres/internal/fixed_array.h" // Borrow this
+
 namespace ceres {
 namespace internal {
 
@@ -236,10 +238,14 @@ ProblemImpl::~ProblemImpl() {
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
-    const vector<double*>& parameter_blocks) {
+    std::initializer_list<double*> parameter_blocks) {
   CHECK_NOTNULL(cost_function);
   CHECK_EQ(parameter_blocks.size(),
            cost_function->parameter_block_sizes().size());
+
+  auto first = std::begin(parameter_blocks);
+  auto last = std::end(parameter_blocks);
+  const size_t cnt = std::distance(first, last);
 
   // Check the sizes match.
   const vector<int32>& parameter_block_sizes =
@@ -259,8 +265,8 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
          != sorted_parameter_blocks.end());
     if (has_duplicate_items) {
       string blocks;
-      for (int i = 0; i < parameter_blocks.size(); ++i) {
-        blocks += StringPrintf(" %p ", parameter_blocks[i]);
+      for (auto it = first; it != last; ++it) {
+        blocks += StringPrintf(" %p ", *it);
       }
 
       LOG(FATAL) << "Duplicate parameter blocks in a residual parameter "
@@ -270,10 +276,11 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   }
 
   // Add parameter blocks and convert the double*'s to parameter blocks.
-  vector<ParameterBlock*> parameter_block_ptrs(parameter_blocks.size());
-  for (int i = 0; i < parameter_blocks.size(); ++i) {
+  FixedArray<ParameterBlock*, 10, 0 /* No init */> parameter_block_ptrs(parameter_blocks.size());
+  auto it = first;
+  for (size_t i = 0; i < cnt; ++i, ++it) {
     parameter_block_ptrs[i] =
-        InternalAddParameterBlock(parameter_blocks[i],
+        InternalAddParameterBlock(*it,
                                   parameter_block_sizes[i]);
   }
 
@@ -298,7 +305,87 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
 
   // Add dependencies on the residual to the parameter blocks.
   if (options_.enable_fast_removal) {
-    for (int i = 0; i < parameter_blocks.size(); ++i) {
+    for (int i = 0; i < cnt; ++i) {
+      parameter_block_ptrs[i]->AddResidualBlock(new_residual_block);
+    }
+  }
+
+  program_->residual_blocks_.push_back(new_residual_block);
+
+  if (options_.enable_fast_removal) {
+    residual_block_set_.insert(new_residual_block);
+  }
+
+  return new_residual_block;
+}
+
+ResidualBlock* ProblemImpl::AddResidualBlock(
+    CostFunction* cost_function,
+    LossFunction* loss_function,
+    std::vector<double*>::iterator first, std::vector<double*>::iterator last) {
+  const auto cnt = std::distance(first, last);
+
+  CHECK_NOTNULL(cost_function);
+  CHECK_EQ(cnt, cost_function->parameter_block_sizes().size());
+
+
+  // Check the sizes match.
+  const vector<int32>& parameter_block_sizes =
+      cost_function->parameter_block_sizes();
+
+  if (!options_.disable_all_safety_checks) {
+    CHECK_EQ(parameter_block_sizes.size(), cnt)
+        << "Number of blocks input is different than the number of blocks "
+        << "that the cost function expects.";
+
+    // Check for duplicate parameter blocks.
+    vector<double*> sorted_parameter_blocks(first, last);
+    sort(sorted_parameter_blocks.begin(), sorted_parameter_blocks.end());
+    const bool has_duplicate_items =
+        (std::adjacent_find(sorted_parameter_blocks.begin(),
+                            sorted_parameter_blocks.end())
+         != sorted_parameter_blocks.end());
+    if (has_duplicate_items) {
+      string blocks;
+      for (auto it = first; first != last; ++it) {
+        blocks += StringPrintf(" %p ", *it);
+      }
+
+      LOG(FATAL) << "Duplicate parameter blocks in a residual parameter "
+                 << "are not allowed. Parameter block pointers: ["
+                 << blocks << "]";
+    }
+  }
+
+  // Add parameter blocks and convert the double*'s to parameter blocks.
+  FixedArray<ParameterBlock*, 10, 0 /* No init */> parameter_block_ptrs(cnt);
+  size_t idx = 0;
+  for (auto it = first; it != last; ++it, ++idx) {
+    parameter_block_ptrs[idx] = InternalAddParameterBlock(*it, parameter_block_sizes[idx]);
+  }
+
+  if (!options_.disable_all_safety_checks) {
+    // Check that the block sizes match the block sizes expected by the
+    // cost_function.
+    for (int i = 0; i < cnt; ++i) {
+      CHECK_EQ(cost_function->parameter_block_sizes()[i],
+               parameter_block_ptrs[i]->Size())
+          << "The cost function expects parameter block " << i
+          << " of size " << cost_function->parameter_block_sizes()[i]
+          << " but was given a block of size "
+          << parameter_block_ptrs[i]->Size();
+    }
+  }
+
+  ResidualBlock* new_residual_block =
+      new ResidualBlock(cost_function,
+                        loss_function,
+                        parameter_block_ptrs,
+                        program_->residual_blocks_.size());
+
+  // Add dependencies on the residual to the parameter blocks.
+  if (options_.enable_fast_removal) {
+    for (int i = 0; i < cnt; ++i) {
       parameter_block_ptrs[i]->AddResidualBlock(new_residual_block);
     }
   }
@@ -318,69 +405,44 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  {
+      return AddResidualBlock(cost_function, loss_function, {x0});
+  }
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0, double* x1) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0, double* x1, double* x2) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
     CostFunction* cost_function,
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4, double* x5) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  residual_parameters.push_back(x5);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4, x5});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
@@ -388,15 +450,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4, double* x5,
     double* x6) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  residual_parameters.push_back(x5);
-  residual_parameters.push_back(x6);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4, x5, x6});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
@@ -404,16 +458,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4, double* x5,
     double* x6, double* x7) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  residual_parameters.push_back(x5);
-  residual_parameters.push_back(x6);
-  residual_parameters.push_back(x7);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4, x5, x6, x7});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
@@ -421,17 +466,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4, double* x5,
     double* x6, double* x7, double* x8) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  residual_parameters.push_back(x5);
-  residual_parameters.push_back(x6);
-  residual_parameters.push_back(x7);
-  residual_parameters.push_back(x8);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4, x5, x6, x7, x8});
 }
 
 ResidualBlock* ProblemImpl::AddResidualBlock(
@@ -439,18 +474,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
     LossFunction* loss_function,
     double* x0, double* x1, double* x2, double* x3, double* x4, double* x5,
     double* x6, double* x7, double* x8, double* x9) {
-  vector<double*> residual_parameters;
-  residual_parameters.push_back(x0);
-  residual_parameters.push_back(x1);
-  residual_parameters.push_back(x2);
-  residual_parameters.push_back(x3);
-  residual_parameters.push_back(x4);
-  residual_parameters.push_back(x5);
-  residual_parameters.push_back(x6);
-  residual_parameters.push_back(x7);
-  residual_parameters.push_back(x8);
-  residual_parameters.push_back(x9);
-  return AddResidualBlock(cost_function, loss_function, residual_parameters);
+  return AddResidualBlock(cost_function, loss_function, {x0, x1, x2, x3, x4, x5, x6, x7, x8, x9});
 }
 
 void ProblemImpl::AddParameterBlock(double* values, int size) {

@@ -37,16 +37,34 @@
 #include <vector>
 #include "ceres/fpclassify.h"
 #include "ceres/stringprintf.h"
-#include "ceres/types.h"
+
+#define DBL_EXP_INFNAN  2047
+
+struct ieee_double {
+    uint64_t   dbl_fracl;
+    uint64_t   dbl_frach:20;
+    uint64_t   dbl_exp:11;
+    uint64_t   dbl_sign:1;
+};
+
 namespace ceres {
 namespace internal {
 
 using std::string;
 
+int
+__isfinite(double d)
+{
+	struct ieee_double *p = (struct ieee_double *)&d;
+
+	return (p->dbl_exp != DBL_EXP_INFNAN);
+}
+
 bool IsArrayValid(const int size, const double* x) {
   if (x != NULL) {
+
     for (int i = 0; i < size; ++i) {
-      if (!IsFinite(x[i]) || (x[i] == kImpossibleValue))  {
+      if ( !IsFinite( x[ i ] ) || ( x[ i ] == kImpossibleValue ) ) {
         return false;
       }
     }
@@ -60,20 +78,12 @@ int FindInvalidValue(const int size, const double* x) {
   }
 
   for (int i = 0; i < size; ++i) {
-    if (!IsFinite(x[i]) || (x[i] == kImpossibleValue))  {
+    if ( !IsFinite( x[ i ] ) || ( x[ i ] == kImpossibleValue ) ) {
       return i;
     }
   }
 
   return size;
-}
-
-void InvalidateArray(const int size, double* x) {
-  if (x != NULL) {
-    for (int i = 0; i < size; ++i) {
-      x[i] = kImpossibleValue;
-    }
-  }
 }
 
 void AppendArrayToString(const int size, const double* x, string* result) {

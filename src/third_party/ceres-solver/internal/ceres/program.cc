@@ -47,6 +47,8 @@
 #include "ceres/stl_util.h"
 #include "ceres/triplet_sparse_matrix.h"
 
+#include <numeric>
+
 namespace ceres {
 namespace internal {
 
@@ -442,11 +444,14 @@ int Program::NumParameterBlocks() const {
 }
 
 int Program::NumResiduals() const {
-  int num_residuals = 0;
-  for (int i = 0; i < residual_blocks_.size(); ++i) {
-    num_residuals += residual_blocks_[i]->NumResiduals();
-  }
-  return num_residuals;
+  return std::accumulate(
+    std::begin(residual_blocks_),
+    std::end(residual_blocks_), 0,
+    [](const auto& a, const auto& b)
+    {
+      return a + b->NumResiduals();
+    }
+  );
 }
 
 int Program::NumParameters() const {
@@ -458,11 +463,14 @@ int Program::NumParameters() const {
 }
 
 int Program::NumEffectiveParameters() const {
-  int num_parameters = 0;
-  for (int i = 0; i < parameter_blocks_.size(); ++i) {
-    num_parameters += parameter_blocks_[i]->LocalSize();
-  }
-  return num_parameters;
+  return std::accumulate(
+    std::begin(parameter_blocks_),
+    std::end(parameter_blocks_), 0,
+    [](const auto& a, const auto& b)
+    {
+      return a + b->LocalSize();
+    }
+  );
 }
 
 int Program::MaxScratchDoublesNeededForEvaluate() const {

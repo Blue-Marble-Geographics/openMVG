@@ -98,12 +98,12 @@ class Pose3
     * @return transformed point
     */
     template<typename T>
-    inline typename T::PlainObject operator() (const T& p) const
+    __forceinline typename T::PlainObject operator() (const T& p) const
     {
       return rotation_ * ( p.colwise() - center_ );
     }
     /// Specialization for Vec3
-    inline typename Vec3::PlainObject operator() (const Vec3& p) const
+    __forceinline typename Vec3::PlainObject operator() (const Vec3& p) const
     {
       return rotation_ * ( p - center_ );
     }

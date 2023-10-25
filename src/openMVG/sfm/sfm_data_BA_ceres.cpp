@@ -235,7 +235,10 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
   }
 
-  ceres::Problem problem;
+  ceres::Problem::Options problem_options;
+  problem_options.enable_fast_removal = false; // Much slower, 326 vs 209
+  problem_options.disable_all_safety_checks = true;
+  ceres::Problem problem(problem_options);
 
   // Data wrapper for refinement:
   Hash_Map<IndexT, std::vector<double>> map_intrinsics;
@@ -330,6 +333,7 @@ bool Bundle_Adjustment_Ceres::Adjust
       new ceres::HuberLoss(Square(4.0))
       : nullptr;
 
+
   // For all visibility add reprojections errors:
   for (auto & structure_landmark_it : sfm_data.structure)
   {
@@ -344,36 +348,38 @@ bool Bundle_Adjustment_Ceres::Adjust
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
-        IntrinsicsToCostFunction(sfm_data.intrinsics.at(view->id_intrinsic).get(),
-                                 obs_it.second.x);
+        IntrinsicsToCostFunction(sfm_data.intrinsics.at(view->id_intrinsic).get(), obs_it.second.x);
 
+      auto& it = map_intrinsics.at(view->id_intrinsic);
+      auto& it2 = map_poses.at(view->id_pose)[ 0 ];
+      auto* p = structure_landmark_it.second.X.data();
       if (cost_function)
       {
-        if (!map_intrinsics.at(view->id_intrinsic).empty())
+        if (!it.empty())
         {
           problem.AddResidualBlock(cost_function,
             p_LossFunction,
-            &map_intrinsics.at(view->id_intrinsic)[0],
-            &map_poses.at(view->id_pose)[0],
-            structure_landmark_it.second.X.data());
+            &it[0],
+            &it2,
+            p);
         }
         else
         {
           problem.AddResidualBlock(cost_function,
             p_LossFunction,
-            &map_poses.at(view->id_pose)[0],
-            structure_landmark_it.second.X.data());
+            &it2,
+            p);
         }
       }
       else
       {
         OPENMVG_LOG_ERROR << "Cannot create a CostFunction for this camera model.";
         return false;
-      }
     }
     if (options.structure_opt == Structure_Parameter_Type::NONE)
-      problem.SetParameterBlockConstant(structure_landmark_it.second.X.data());
+      problem.SetParameterBlockConstant(p);
   }
+}
 
   if (options.control_point_opt.bUse_control_points)
   {

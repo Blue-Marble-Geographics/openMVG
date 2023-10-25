@@ -49,6 +49,8 @@
 #include "ceres/problem.h"
 #include "ceres/types.h"
 
+#include <unordered_map>
+
 namespace ceres {
 
 class CostFunction;
@@ -63,7 +65,7 @@ class ResidualBlock;
 
 class ProblemImpl {
  public:
-  typedef std::map<double*, ParameterBlock*> ParameterMap;
+  typedef std::unordered_map<double*, ParameterBlock*> ParameterMap;
   typedef HashSet<ResidualBlock*> ResidualBlockSet;
 
   ProblemImpl();
@@ -75,7 +77,11 @@ class ProblemImpl {
   ResidualBlockId AddResidualBlock(
       CostFunction* cost_function,
       LossFunction* loss_function,
-      const std::vector<double*>& parameter_blocks);
+      std::initializer_list<double*> parameter_blocks);
+  ResidualBlock* AddResidualBlock(
+    CostFunction* cost_function,
+    LossFunction* loss_function,
+    std::vector<double*>::iterator first, std::vector<double*>::iterator last);
   ResidualBlockId AddResidualBlock(CostFunction* cost_function,
                                    LossFunction* loss_function,
                                    double* x0);
@@ -201,7 +207,7 @@ class ProblemImpl {
   const Problem::Options options_;
 
   // The mapping from user pointers to parameter blocks.
-  std::map<double*, ParameterBlock*> parameter_block_map_;
+  std::unordered_map<double*, ParameterBlock*> parameter_block_map_;
 
   // Iff enable_fast_removal is enabled, contains the current residual blocks.
   ResidualBlockSet residual_block_set_;

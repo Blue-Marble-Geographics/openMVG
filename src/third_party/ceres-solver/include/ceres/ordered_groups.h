@@ -62,7 +62,35 @@ class OrderedGroups {
     if (group < 0) {
       return false;
     }
+#if 0 // JPB WIP
+    const auto result = element_to_group_.try_emplace(element, group);
+    // result.first has an iterator pair to where it is inserted.
+    // result.second is false if insertion occurred, true if element already present.
+    if (!result.second) { // Element was already there.
+      // Is it in the same group?
+      auto current_element = result.first->second;
+      if (current_element == group) {
+        // Element is already in the right group, nothing to do.
+        return true;
+      }
 
+      // Find the group (a set and always there)
+      auto it = group_to_elements_.find(current_element);
+
+      auto& group_to_elements_set = it->second;
+
+      // Find the element in the group (set) and remove it.
+      auto it2 = group_to_elements_set.find(element);
+      group_to_elements_set.erase(it2);
+
+      // If it makes the set empty erase the set.
+      if (group_to_elements_set.empty()) {
+        group_to_elements_.erase(it);
+      }
+    }
+
+    group_to_elements_[group].insert(element);
+#else
     typename std::map<T, int>::const_iterator it =
         element_to_group_.find(element);
     if (it != element_to_group_.end()) {
@@ -79,6 +107,7 @@ class OrderedGroups {
 
     element_to_group_[element] = group;
     group_to_elements_[group].insert(element);
+#endif
     return true;
   }
 

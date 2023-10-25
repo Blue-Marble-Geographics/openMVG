@@ -146,6 +146,16 @@ class Pinhole_Intrinsic : public IntrinsicBase
       return tmp;
     }
 
+    void allBearings( Mat3X& result, const Mat2X& points ) const override
+    {
+      result.resize( 3, points.cols() );
+      int h = 0;
+      for (const auto& i : points.colwise())
+      {
+        result.col( h++ ) = Pinhole_Intrinsic::oneBearing( i );
+      }
+    }
+
     Vec3 oneBearing( const Vec2& p ) const override
     {
       return (Kinv_ * p.homogeneous()).normalized();

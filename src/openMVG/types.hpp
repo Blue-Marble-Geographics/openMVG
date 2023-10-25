@@ -22,6 +22,8 @@
 #include <set>
 #include <vector>
 
+#define OPENMVG_STD_UNORDERED_MAP
+
 #ifdef OPENMVG_STD_UNORDERED_MAP
 
 #include <algorithm>

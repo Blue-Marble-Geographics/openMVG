@@ -79,13 +79,25 @@ struct CompressedList {
   std::vector<Cell> cells;
 };
 
-typedef CompressedList CompressedRow;
+struct CompressedList2 {
+  CompressedList2() {}
+
+  // Construct a CompressedList with the cells containing num_cells
+  // entries.
+  CompressedList2(std::vector<Cell>& parent_cells) : cells(parent_cells.data()), num_cells(parent_cells.size()) {}
+  Block block;
+  Cell* cells = nullptr;
+  int num_cells = 0;
+};
+
 typedef CompressedList CompressedColumn;
+typedef CompressedList2 CompressedRow;
 
 struct CompressedRowBlockStructure {
   std::vector<BlockSize> col_sizes;
   std::vector<int> col_positions;
   std::vector<CompressedRow> rows;
+  std::vector<Cell> all_cells;
 };
 
 struct CompressedColumnBlockStructure {

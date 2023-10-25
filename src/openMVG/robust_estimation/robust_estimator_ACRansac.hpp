@@ -50,6 +50,70 @@
 #include "openMVG/system/logger.hpp"
 #include "third_party/histogram/histogram.hpp"
 
+//https://stackoverflow.com/questions/1271367/radix-sort-implemented-in-c/40457313#40457313
+static inline void RadixSort32( uint32_t* a, size_t count )
+{
+  size_t mIndex[ 4 ][ 256 ] = { 0 };            // count / index matrix
+  uint32_t* b = new uint32_t[ count ];    // allocate temp array
+  size_t i, j, m, n;
+  uint32_t u;
+  for ( i = 0; i < count; i++ ) {         // generate histograms
+    u = a[ i ];
+    for ( j = 0; j < 4; j++ ) {
+      mIndex[ j ][ (size_t)( u & 0xff ) ]++;
+      u >>= 8;
+    }
+  }
+  for ( j = 0; j < 4; j++ ) {             // convert to indices
+    m = 0;
+    for ( i = 0; i < 256; i++ ) {
+      n = mIndex[ j ][ i ];
+      mIndex[ j ][ i ] = m;
+      m += n;
+    }
+  }
+  for ( j = 0; j < 4; j++ ) {             // radix sort
+    for ( i = 0; i < count; i++ ) {     //  sort by current lsb
+      u = a[ i ];
+      m = (size_t)( u >> ( j << 3 ) ) & 0xff;
+      b[ mIndex[ j ][ m ]++ ] = u;
+    }
+    std::swap( a, b );                //  swap ptrs
+  }
+  delete[] b;
+}
+
+static inline void RadixSort64( uint64_t* a, size_t count )
+{
+  size_t mIndex[ 8 ][ 256 ] = { 0 };            // count / index matrix
+  uint64_t* b = new uint64_t[ count ];    // allocate temp array
+  size_t i, j, m, n;
+  uint64_t u;
+  for ( i = 0; i < count; i++ ) {         // generate histograms
+    u = a[ i ];
+    for ( j = 0; j < 8; j++ ) {
+      mIndex[ j ][ (size_t)( u & 0xff ) ]++;
+      u >>= 8;
+    }
+  }
+  for ( j = 0; j < 8; j++ ) {             // convert to indices
+    m = 0;
+    for ( i = 0; i < 256; i++ ) {
+      n = mIndex[ j ][ i ];
+      mIndex[ j ][ i ] = m;
+      m += n;
+    }
+  }
+  for ( j = 0; j < 8; j++ ) {             // radix sort
+    for ( i = 0; i < count; i++ ) {     //  sort by current lsb
+      u = a[ i ];
+      m = (size_t)( u >> ( j << 3 ) ) & 0xff;
+      b[ mIndex[ j ][ m ]++ ] = u;
+    }
+    std::swap( a, b );                //  swap ptrs
+  }
+  delete[] b;
+}
 namespace openMVG {
 namespace robust{
 
@@ -164,7 +228,9 @@ public:
   bool ComputeNFA_and_inliers
   (
     std::vector<uint32_t> & inliers,
-    std::pair<double,double> & nfa_threshold
+    std::pair<double,double> & nfa_threshold,
+    std::vector<uint64_t>& scratchMemory64,
+    std::vector<uint32_t>& scratchMemory32
   );
 
 private:
@@ -191,9 +257,11 @@ template <typename Kernel>
 bool
 NFA_Interface<Kernel>::ComputeNFA_and_inliers
 (
-    std::vector<uint32_t> & inliers,
-    /// NFA and residual threshold
-    std::pair<double,double> & nfa_threshold
+  std::vector<uint32_t>& inliers,
+  /// NFA and residual threshold
+  std::pair<double, double>& nfa_threshold,
+  std::vector<uint64_t>& scratchMemory64,
+  std::vector<uint32_t>& scratchMemory32
 )
 {
   // A-Contrario computation of the most meaningful discrimination inliers/outliers.
@@ -258,6 +326,48 @@ NFA_Interface<Kernel>::ComputeNFA_and_inliers
   {
     // Residuals sorting (ascending order while keeping original point indexes)
     {
+#if 1
+      const size_t numSamples = m_kernel.NumSamples();
+      if (numSamples <= 65536)
+      {
+        scratchMemory32.clear();
+        scratchMemory32.reserve(numSamples);
+        for (size_t i = 0; i < numSamples; ++i)
+        {
+          const uint32_t residualAndIndex = (((uint32_t)_cvt_dtoui_fast(m_residuals[i] * USHRT_MAX)) << 16) + i;
+          scratchMemory32.emplace_back(residualAndIndex);
+        }
+        RadixSort32(scratchMemory32.data(), numSamples);
+
+        m_sorted_residuals.clear();
+        m_sorted_residuals.reserve(numSamples);
+        constexpr double inv_USHRT_MAX = 1. / USHRT_MAX;
+
+        for (const auto& i : scratchMemory32)
+        {
+          m_sorted_residuals.emplace_back((i>>16) * inv_USHRT_MAX, i&0xFFFF);
+        }
+
+      }
+      else
+      {
+        scratchMemory64.clear();
+        scratchMemory64.reserve(numSamples);
+        for (size_t i = 0; i < numSamples; ++i)
+        {
+          const uint64_t residualAndIndex = (((uint64_t)_cvt_dtoui_fast(m_residuals[i] * UINT_MAX)) << 32) + i;
+          scratchMemory64.emplace_back(residualAndIndex);
+        }
+        RadixSort64(scratchMemory64.data(), numSamples);
+
+        m_sorted_residuals.clear();
+        m_sorted_residuals.reserve(numSamples);
+        for (const auto& i : scratchMemory64)
+        {
+          m_sorted_residuals.emplace_back(((double) (i>>32)) / ((double) UINT_MAX), i&0xFFFFFFFF);
+        }
+      }
+#else
       m_sorted_residuals.clear();
       m_sorted_residuals.reserve(m_kernel.NumSamples());
       for (uint32_t i = 0; i < m_kernel.NumSamples(); ++i)
@@ -265,6 +375,7 @@ NFA_Interface<Kernel>::ComputeNFA_and_inliers
         m_sorted_residuals.emplace_back(m_residuals[i], i);
       }
       std::sort(m_sorted_residuals.begin(), m_sorted_residuals.end());
+#endif
     }
 
     // Find best NFA and its index wrt square error threshold in m_sorted_residuals.
@@ -380,6 +491,10 @@ std::pair<double, double> ACRANSAC
 
   //--
   // Main estimation loop.
+  std::vector<uint64_t> scratchMemory64;
+  std::vector<uint32_t> scratchMemory32;
+  std::vector<typename Kernel::Model> vec_models;
+  auto& nfa_interface_residuals = nfa_interface.residuals();
   for (unsigned int iter = 0; iter < nIter && iter < num_max_iteration; ++iter)
   {
     // Get random samples
@@ -389,7 +504,7 @@ std::pair<double, double> ACRANSAC
       UniformSample(sizeSample, nData, random_generator, &vec_sample);
 
     // Fit model(s). Can find up to Kernel::MAX_MODELS solution(s)
-    std::vector<typename Kernel::Model> vec_models;
+    vec_models.clear();
     kernel.Fit(vec_sample, &vec_models);
 
     // Evaluate model(s)
@@ -397,7 +512,7 @@ std::pair<double, double> ACRANSAC
     for (const auto& model_it : vec_models)
     {
       // Compute residual values
-      kernel.Errors(model_it, nfa_interface.residuals());
+      kernel.Errors(model_it, nfa_interface_residuals);
 
       if (!bACRansacMode)
       {
@@ -405,7 +520,7 @@ std::pair<double, double> ACRANSAC
         unsigned int nInlier = 0;
         for (size_t i = 0; i < nData; ++i)
         {
-          if (nfa_interface.residuals()[i] <= maxThreshold)
+          if (nfa_interface_residuals[i] <= maxThreshold)
             ++nInlier;
         }
         if (nInlier > 2.5 * sizeSample) // does the model is meaningful
@@ -417,7 +532,7 @@ std::pair<double, double> ACRANSAC
         // NFA evaluation; If better than the previous: update scoring & inliers indices
         std::pair<double, double> nfa_threshold(minNFA, 0.0);
         const bool b_better_model_found =
-          nfa_interface.ComputeNFA_and_inliers(vec_inliers, nfa_threshold);
+          nfa_interface.ComputeNFA_and_inliers(vec_inliers, nfa_threshold, scratchMemory64, scratchMemory32);
 
         if (b_better_model_found)
         {

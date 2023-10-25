@@ -60,8 +60,9 @@ bool BlockJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   m_->SetZero();
   for (int i = 0; i < bs->rows.size(); ++i) {
     const int row_block_size = bs->rows[i].block.size;
-    const std::vector<Cell>& cells = bs->rows[i].cells;
-    for (int j = 0; j < cells.size(); ++j) {
+    const Cell* cells = bs->rows[i].cells;
+    const size_t cnt = bs->rows[ i ].num_cells;
+    for (size_t j = 0; j < cnt; ++j) {
       const int block_id = cells[j].block_id;
       const int col_block_size = bs->col_sizes[block_id];
 

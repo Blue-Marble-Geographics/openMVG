@@ -163,12 +163,10 @@ ceres_residual_block_id_t* ceres_problem_add_residual_block(
                                                       loss_function_data);
   }
 
-  std::vector<double*> parameter_blocks(parameters,
-                                        parameters + num_parameter_blocks);
   return reinterpret_cast<ceres_residual_block_id_t*>(
       ceres_problem->AddResidualBlock(callback_cost_function,
                                       callback_loss_function,
-                                      parameter_blocks));
+                                      *parameters, *parameters + num_parameter_blocks));
 }
 
 void ceres_solve(ceres_problem_t* c_problem) {

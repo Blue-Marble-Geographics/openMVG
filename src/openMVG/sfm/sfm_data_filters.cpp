@@ -12,6 +12,8 @@
 #include "openMVG/system/logger.hpp"
 #include "openMVG/tracks/union_find.hpp"
 
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace openMVG {
@@ -46,6 +48,7 @@ IndexT RemoveOutliers_PixelResidualError
 {
   IndexT outlier_count = 0;
   Landmarks::iterator iterTracks = sfm_data.structure.begin();
+  const double dThresholdPixelSquared = dThresholdPixel * dThresholdPixel;
   while (iterTracks != sfm_data.structure.end())
   {
     Observations & obs = iterTracks->second.obs;
@@ -56,7 +59,7 @@ IndexT RemoveOutliers_PixelResidualError
       const geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
       const cameras::IntrinsicBase * intrinsic = sfm_data.intrinsics.at(view->id_intrinsic).get();
       const Vec2 residual = intrinsic->residual(pose(iterTracks->second.X), itObs->second.x);
-      if (residual.norm() > dThresholdPixel)
+      if (residual.squaredNorm() > dThresholdPixelSquared)
       {
         ++outlier_count;
         itObs = obs.erase(itObs);
@@ -80,30 +83,39 @@ IndexT RemoveOutliers_AngleError
   const double dMinAcceptedAngle
 )
 {
+  std::unordered_map<const View*, std::pair<Mat3, const cameras::IntrinsicBase*>> poseInfo;
+  for (const auto& it : sfm_data.views) {
+    auto tmp = sfm_data.GetPoses().find(it.second->id_pose);
+    if ( tmp != sfm_data.GetPoses().end())
+    {
+      poseInfo[ it.second.get() ] = std::make_pair( sfm_data.GetPoseOrDie( it.second.get() ).rotation().transpose(), sfm_data.intrinsics.at( it.second->id_intrinsic ).get() );
+    }
+  }
+
+  std::vector<Vec3> rays;
+  rays.reserve(sfm_data.structure.size());
+
   IndexT removedTrack_count = 0;
   Landmarks::iterator iterTracks = sfm_data.structure.begin();
   while (iterTracks != sfm_data.structure.end())
   {
     Observations & obs = iterTracks->second.obs;
     double max_angle = 0.0;
-    for (Observations::const_iterator itObs1 = obs.begin();
-      itObs1 != obs.end(); ++itObs1)
+
+    rays.clear();
+    for (auto it = std::begin(obs); it != std::end(obs); ++it)
     {
-      const View * view1 = sfm_data.views.at(itObs1->first).get();
-      const geometry::Pose3 pose1 = sfm_data.GetPoseOrDie(view1);
-      const cameras::IntrinsicBase * intrinsic1 = sfm_data.intrinsics.at(view1->id_intrinsic).get();
+      const View* view = sfm_data.views.at( it->first ).get();
+      const auto& pi = poseInfo.find( view )->second;
 
-      Observations::const_iterator itObs2 = itObs1;
-      ++itObs2;
-      for (; itObs2 != obs.end(); ++itObs2)
+      rays.emplace_back( ( pi.first * pi.second->oneBearing( pi.second->get_ud_pixel( it->second.x ) ) ).normalized() );
+    }
+
+    for (size_t i = 0, cnt = rays.size(); i != cnt; ++i)
+    {
+      for (size_t j = i+1; j != cnt; ++j)
       {
-        const View * view2 = sfm_data.views.at(itObs2->first).get();
-        const geometry::Pose3 pose2 = sfm_data.GetPoseOrDie(view2);
-        const cameras::IntrinsicBase * intrinsic2 = sfm_data.intrinsics.at(view2->id_intrinsic).get();
-
-        const double angle = AngleBetweenRay(
-          pose1, intrinsic1, pose2, intrinsic2,
-          intrinsic1->get_ud_pixel(itObs1->second.x), intrinsic2->get_ud_pixel(itObs2->second.x));
+        const double angle = cameras::AngleBetweenRay2( rays[i], rays[j] );
         max_angle = std::max(angle, max_angle);
       }
     }
@@ -166,13 +178,15 @@ bool eraseObservationsWithMissingPoses
 {
   IndexT removed_elements = 0;
 
-  std::set<IndexT> pose_Index;
+  std::unordered_set<IndexT> pose_Index;
+  pose_Index.reserve(sfm_data.GetPoses().size() * 2);
   std::transform(sfm_data.poses.cbegin(), sfm_data.poses.cend(),
     std::inserter(pose_Index, pose_Index.begin()), stl::RetrieveKey());
 
   // For each landmark:
   //  - Check if we need to keep the observations & the track
   Landmarks::iterator itLandmarks = sfm_data.structure.begin();
+  const auto& views = sfm_data.GetViews();
   while (itLandmarks != sfm_data.structure.end())
   {
     Observations & obs = itLandmarks->second.obs;
@@ -180,7 +194,7 @@ bool eraseObservationsWithMissingPoses
     while (itObs != obs.end())
     {
       const IndexT ViewId = itObs->first;
-      const View * v = sfm_data.GetViews().at(ViewId).get();
+      const View * v = views.at(ViewId).get();
       if (pose_Index.count(v->id_pose) == 0)
       {
         itObs = obs.erase(itObs);

@@ -229,7 +229,8 @@ struct AutoDiff {
         << N8 << ", " << N9;
 
     typedef Jet<T, N0 + N1 + N2 + N3 + N4 + N5 + N6 + N7 + N8 + N9> JetT;
-    FixedArray<JetT, (256 * 7) / sizeof(JetT)> x(
+    // Jets will be overwritten, hence no need for initialization (do_init = false)
+    FixedArray<JetT, (1024 * 7) / sizeof(JetT), 0 /* No init */> x(
         N0 + N1 + N2 + N3 + N4 + N5 + N6 + N7 + N8 + N9 + num_outputs);
 
     // These are the positions of the respective jets in the fixed array x.

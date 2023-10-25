@@ -52,7 +52,7 @@ public:
     assert(2 == x2d_.rows());
     assert(3 == x3D_.rows());
     assert(x2d_.cols() == x3D_.cols());
-    bearing_vectors_= camera->operator()(x2d_);
+    camera->allBearings( bearing_vectors_, x2d_ );// bearing_vectors_ = camera->operator()( x2d_ );
   }
 
   enum { MINIMUM_SAMPLES = Solver::MINIMUM_SAMPLES };
@@ -98,7 +98,7 @@ public:
 
 private:
   const Mat& x2d_;
-  Mat bearing_vectors_;
+  Mat3X bearing_vectors_;
   const Mat & x3D_;
   Mat3 N1_;
   double logalpha0_;  // Alpha0 is used to make the error adaptive to the image size

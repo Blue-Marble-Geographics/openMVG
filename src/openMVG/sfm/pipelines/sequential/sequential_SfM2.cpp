@@ -325,6 +325,18 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
     return tracks_ids;
   }();
 
+#ifdef OPENMVG_USE_OPENMP
+  struct ParallelData_t
+  {
+    openMVG::tracks::STLMAPTracks view_tracks;
+    std::vector<IndexT> feature_id_for_resection;
+    Image_Localizer_Match_Data resection_data;
+    Mat2X pt2D_original;
+  };
+
+  std::vector<ParallelData_t> parallelDataPool(omp_get_max_threads());
+#endif
+
   // List the view that have a sufficient 2D-3D coverage for robust pose estimation
 #pragma omp parallel
   for (const auto & view_id : view_with_no_pose)
@@ -334,7 +346,15 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
 #endif
     {
       // List the track related to the current view_id
+
+#ifdef OPENMVG_USE_OPENMP
+      size_t current_thread = omp_get_thread_num();
+      auto& view_tracks = parallelDataPool[current_thread].view_tracks;
+      view_tracks.clear();
+#else
       openMVG::tracks::STLMAPTracks view_tracks;
+#endif
+
       shared_track_visibility_helper_->GetTracksInImages({view_id}, view_tracks);
       std::set<IndexT> view_tracks_ids;
       tracks::TracksUtilsMap::GetTracksIdVector(view_tracks, &view_tracks_ids);
@@ -358,7 +378,12 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
       if (!track_id_for_resection.empty() && track_ratio > track_inlier_ratio)
       {
         // Get feat_id for the 2D/3D associations
+#ifdef OPENMVG_USE_OPENMP
+        auto& feature_id_for_resection = parallelDataPool[current_thread].feature_id_for_resection;
+        feature_id_for_resection.clear();
+#else
         std::vector<IndexT> feature_id_for_resection;
+#endif
         tracks::TracksUtilsMap::GetFeatIndexPerViewAndTrackId(
           view_tracks,
           track_id_for_resection,
@@ -366,9 +391,14 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
           &feature_id_for_resection);
 
         // Localize the image inside the SfM reconstruction
+#ifdef OPENMVG_USE_OPENMP
+        auto& resection_data = parallelDataPool[current_thread].resection_data;
+        resection_data.vec_inliers.clear();
+#else
         Image_Localizer_Match_Data resection_data;
-        resection_data.pt2D.resize(2, track_id_for_resection.size());
-        resection_data.pt3D.resize(3, track_id_for_resection.size());
+#endif
+        resection_data.pt2D.resize( 2, track_id_for_resection.size() );
+        resection_data.pt3D.resize( 3, track_id_for_resection.size() );
 
         // Look if the intrinsic data is known or not
         const View * view = sfm_data_.GetViews().at(view_id).get();
@@ -379,7 +409,12 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
         }
 
         // Collect the feature observation
-        Mat2X pt2D_original(2, track_id_for_resection.size());
+#ifdef OPENMVG_USE_OPENMP
+        Mat2X& pt2D_original = parallelDataPool[current_thread].pt2D_original;
+        pt2D_original.resize(2, track_id_for_resection.size());
+#else
+        Mat2X pt2D_original( 2, track_id_for_resection.size() );
+#endif
         auto track_it = track_id_for_resection.cbegin();
         auto feat_it = feature_id_for_resection.cbegin();
         for (size_t cpt = 0; cpt < track_id_for_resection.size(); ++cpt, ++track_it, ++feat_it)

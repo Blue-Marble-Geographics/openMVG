@@ -351,6 +351,7 @@ void MaybeReorderSchurComplementColumnsUsingSuiteSparse(
   vector<int> constraints;
   vector<ParameterBlock*>& parameter_blocks =
       *(program->mutable_parameter_blocks());
+  constraints.reserve(parameter_blocks.size());
 
   for (int i = 0; i < parameter_blocks.size(); ++i) {
     constraints.push_back(
@@ -376,7 +377,9 @@ void MaybeReorderSchurComplementColumnsUsingSuiteSparse(
                                                  &ordering[0]);
   ss.Free(block_jacobian_transpose);
 
-  const vector<ParameterBlock*> parameter_blocks_copy(parameter_blocks);
+  FixedArray<ParameterBlock*, 10, 0 /* No init */> parameter_blocks_copy(parameter_blocks.size());
+  std::copy(std::begin(parameter_blocks), std::end(parameter_blocks), parameter_blocks_copy.begin());
+
   for (int i = 0; i < program->NumParameterBlocks(); ++i) {
     parameter_blocks[i] = parameter_blocks_copy[ordering[i]];
   }

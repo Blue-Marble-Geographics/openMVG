@@ -39,6 +39,9 @@ using namespace openMVG;
 using namespace openMVG::cameras;
 using namespace openMVG::sfm;
 
+std::atomic<double> travel = 0.;
+std::atomic<double> tttries = 0.;
+
 
 enum class ESfMSceneInitializer
 {

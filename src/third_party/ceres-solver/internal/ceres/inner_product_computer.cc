@@ -197,7 +197,7 @@ void InnerProductComputer::Init(
   for (int row_block = start_row_block_; row_block < end_row_block_;
        ++row_block) {
     const CompressedRow& row = bs->rows[row_block];
-    for (int c1 = 0; c1 < row.cells.size(); ++c1) {
+    for (int c1 = 0; c1 < row.num_cells; ++c1) {
       const Cell& cell1 = row.cells[c1];
       int c2_begin, c2_end;
       if (product_storage_type == CompressedRowSparseMatrix::LOWER_TRIANGULAR) {
@@ -205,7 +205,7 @@ void InnerProductComputer::Init(
         c2_end = c1 + 1;
       } else {
         c2_begin = c1;
-        c2_end = row.cells.size();
+        c2_end = row.num_cells;
       }
 
       for (int c2 = c2_begin; c2 < c2_end; ++c2) {
@@ -339,7 +339,8 @@ void InnerProductComputer::Compute() {
   // Iterate row blocks.
   for (int r = start_row_block_; r < end_row_block_; ++r) {
     const CompressedRow& m_row = bs->rows[r];
-    for (int c1 = 0; c1 < m_row.cells.size(); ++c1) {
+    const size_t num_cells = m_row.num_cells;
+    for (int c1 = 0; c1 < num_cells; ++c1) {
       const Cell& cell1 = m_row.cells[c1];
       const int c1_size = bs->col_sizes[cell1.block_id];
       const int row_nnz = rows[bs->col_positions[cell1.block_id] + 1] -
@@ -351,7 +352,7 @@ void InnerProductComputer::Compute() {
         c2_end = c1 + 1;
       } else {
         c2_begin = c1;
-        c2_end = m_row.cells.size();
+        c2_end = num_cells;
       }
 
       for (int c2 = c2_begin; c2 < c2_end; ++c2, ++cursor) {

@@ -53,8 +53,8 @@ void InvalidateEvaluation(const ResidualBlock& block,
   const int num_parameter_blocks = block.NumParameterBlocks();
   const int num_residuals = block.NumResiduals();
 
-  InvalidateArray(1, cost);
-  InvalidateArray(num_residuals, residuals);
+  InvalidateArray<eUnsafe>(1, cost);
+  InvalidateArray<eUnsafe>(num_residuals, residuals);
   if (jacobians != NULL) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
       const int parameter_block_size = block.parameter_blocks()[i]->Size();

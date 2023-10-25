@@ -71,6 +71,9 @@ class SizedCostFunction : public CostFunction {
 
     set_num_residuals(kNumResiduals);
 
+    constexpr size_t cnt = N0+N1+N2+N3+N4+N5+N6+N7+N8+N9;
+    mutable_parameter_block_sizes()->reserve(cnt);
+
 #define CERES_ADD_PARAMETER_BLOCK(N) \
     if (N) mutable_parameter_block_sizes()->push_back(N);
     CERES_ADD_PARAMETER_BLOCK(N0);

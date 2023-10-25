@@ -406,7 +406,7 @@ class SchurEliminator : public SchurEliminatorBase {
     sbhInner.num_row_a_ = row_block_size;
     sbhInner.num_row_b_ = row_block_size;
 
-    for (size_t i = 1, cnt = row.cells.size(); i < cnt; ++i) {
+    for (size_t i = 1, cnt = row.num_cells; i < cnt; ++i) {
       const auto& row_cell_i = row.cells[i];
       const auto* /* restrict? */ row_cell_i_values_position = values + row_cell_i.position;
 
@@ -521,7 +521,7 @@ class SchurEliminator : public SchurEliminatorBase {
 
   // Locks for the blocks in the right hand side of the reduced linear
   // system.
-  std::vector<Mutex*> rhs_locks_;
+  std::vector<Mutex> rhs_locks_;
 };
 
 }  // namespace internal

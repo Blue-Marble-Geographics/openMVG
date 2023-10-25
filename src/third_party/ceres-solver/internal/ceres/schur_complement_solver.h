@@ -130,6 +130,7 @@ class SchurComplementSolver : public BlockSparseMatrixSolver {
   void set_lhs(BlockRandomAccessMatrix* lhs) { lhs_.reset(lhs); }
   const double* rhs() const { return rhs_.get(); }
   void set_rhs(double* rhs) { rhs_.reset(rhs); }
+  std::vector<int> blocks_;
 
  private:
   virtual void InitStorage(const CompressedRowBlockStructure* bs) = 0;

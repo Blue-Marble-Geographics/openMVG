@@ -47,6 +47,11 @@ struct Similarity3
   */
   Mat3X operator () ( const Mat3X & point ) const;
 
+  __forceinline Vec3 AsVec3( const Vec3& point ) const
+  {
+    return scale_ * pose_( point );
+  }
+
   /**
   * @brief Concatenation of pose
   * @param pose Pose to be concatenated with the current one

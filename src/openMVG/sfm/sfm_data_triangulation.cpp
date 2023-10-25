@@ -19,6 +19,9 @@
 #include "openMVG/sfm/sfm_landmark.hpp"
 #include "openMVG/system/loggerprogress.hpp"
 
+#include "ceres/internal/fixed_array.h" // Borrow this
+using namespace ceres::internal;
+
 namespace openMVG {
 namespace sfm {
 
@@ -50,32 +53,45 @@ bool track_triangulation
   const ETriangulationMethod & etri_method = ETriangulationMethod::DEFAULT
 )
 {
+  const size_t cnt = obs.size();
   if (obs.size() >= 2)
   {
-    std::vector<Vec3> bearing;
-    std::vector<Mat34> poses;
-    std::vector<Pose3> poses_;
-    bearing.reserve(obs.size());
-    poses.reserve(obs.size());
-    for (const auto& observation : obs)
+    FixedArray<Vec3, 16, 0 /* No init */> bearing(cnt); // cnt is not the size of the array, but how many elements it can hold before it becomes dynamic.
+    FixedArray<Mat34, 16, 0 /* No init */> poses(cnt);
+    FixedArray<const Pose3*, 16, 0 /* No init */> poses_(cnt);
+
+    int trueCnt = 0;
+
+    auto observation = std::begin(obs);
+    const auto& intrinsics = sfm_data.GetIntrinsics();
+    const auto& allPoses = sfm_data.poses;
+    for (size_t i = 0; i != cnt; ++i, ++observation)
     {
-      const View * view = sfm_data.views.at(observation.first).get();
-      if (!sfm_data.IsPoseAndIntrinsicDefined(view))
-        return false;
-      const IntrinsicBase * cam = sfm_data.GetIntrinsics().at(view->id_intrinsic).get();
-      const Pose3 pose = sfm_data.GetPoseOrDie(view);
-      bearing.emplace_back((*cam)(cam->get_ud_pixel(observation.second.x)));
-      poses.emplace_back(pose.asMatrix());
-      poses_.emplace_back(pose);
+      const View* view = sfm_data.views.at(observation->first).get();
+      if (!view) continue;
+      if (view->id_intrinsic == UndefinedIndexT) continue;
+      if (view->id_pose == UndefinedIndexT) continue;
+
+      const auto cam = intrinsics.at(view->id_intrinsic).get();
+      auto it = intrinsics.find(view->id_intrinsic);
+      if (it == intrinsics.end()) continue;
+      auto itPose = allPoses.find(view->id_pose);
+      if (itPose == allPoses.end()) continue;
+
+      const auto tmp = cam->get_ud_pixel(observation->second.x);
+      bearing[ i ] = cam->oneBearing(tmp);
+      poses[ i ] = itPose->second.asMatrix();
+      poses_[ i ] = &itPose->second;
+      ++trueCnt;
     }
-    if (bearing.size() > 2)
+    if (trueCnt > 2)
     {
-      const Eigen::Map<const Mat3X> bearing_matrix(bearing[0].data(), 3, bearing.size());
+      const Eigen::Map<const Mat3X> bearing_matrix(bearing[0].data(), 3, trueCnt);
       Vec4 Xhomogeneous;
-      if (TriangulateNViewAlgebraic
+      if (TriangulateNViewAlgebraic2
       (
         bearing_matrix,
-        poses,
+        poses.get(),
         &Xhomogeneous))
       {
         X = Xhomogeneous.hnormalized();
@@ -86,12 +102,12 @@ bool track_triangulation
     {
       return Triangulate2View
       (
-        poses_.front().rotation(),
-        poses_.front().translation(),
-        bearing.front(),
-        poses_.back().rotation(),
-        poses_.back().translation(),
-        bearing.back(),
+        poses_[0]->rotation(),
+        poses_[0]->translation(),
+        bearing[0],
+        poses_[trueCnt-1]->rotation(),
+        poses_[trueCnt-1]->translation(),
+        bearing[trueCnt-1],
         X,
         etri_method
       );
@@ -117,15 +133,23 @@ bool track_check_predicate
 )
 {
   bool visibility = false; // assume that no observation has been looked yet
+  const auto& intrinsics = sfm_data.GetIntrinsics();
+  const auto& allPoses = sfm_data.poses;
   for (const auto & obs_it : obs)
   {
-    const View * view = sfm_data.views.at(obs_it.first).get();
-    if (!sfm_data.IsPoseAndIntrinsicDefined(view))
-      continue;
+    const View* view = sfm_data.views.at(obs_it.first).get();
+    if (!view) continue;
+    if (view->id_intrinsic == UndefinedIndexT) continue;
+    if (view->id_pose == UndefinedIndexT) continue;
+
+    const auto cam = intrinsics.at(view->id_intrinsic).get();
+    auto it = intrinsics.find(view->id_intrinsic);
+    if (it == intrinsics.end()) continue;
+    auto itPose = allPoses.find(view->id_pose);
+    if (itPose == allPoses.end()) continue;
+
     visibility = true; // at least an observation is evaluated
-    const IntrinsicBase * cam = sfm_data.intrinsics.at(view->id_intrinsic).get();
-    const Pose3 pose = sfm_data.GetPoseOrDie(view);
-    if (!predicate(*cam, pose, obs_it.second.x, X))
+    if (!predicate(*cam, itPose->second, obs_it.second.x, X))
       return false;
   }
   return visibility;
@@ -139,7 +163,7 @@ bool cheirality_predicate
   const Vec3& X
 )
 {
-  return CheiralityTest(cam(x), pose, X);
+  return CheiralityTest(cam.oneBearing(x), pose, X);
 }
 
 struct ResidualAndCheiralityPredicate
@@ -158,7 +182,7 @@ struct ResidualAndCheiralityPredicate
   )
   {
     const Vec2 residual = cam.residual(pose(X), x);
-    return CheiralityTest(cam(x), pose, X) &&
+    return CheiralityTest(cam.oneBearing(x), pose, X) &&
            residual.squaredNorm() < squared_pixel_threshold_;
   }
 };
@@ -251,49 +275,39 @@ const
 /// Invalid landmark are removed.
 void SfM_Data_Structure_Computation_Robust::robust_triangulation
 (
-  SfM_Data & sfm_data
+  SfM_Data& sfm_data
 )
 const
 {
-  std::deque<IndexT> rejectedId;
   std::unique_ptr<system::ProgressInterface> my_progress_bar;
-  if (bConsole_verbose_)
-    my_progress_bar.reset(
-      new system::LoggerProgress(
-        sfm_data.structure.size(),
-        "Robust triangulation" ));
-#ifdef OPENMVG_USE_OPENMP
-  #pragma omp parallel
-#endif
-  for (auto& tracks_it :sfm_data.structure)
+  std::vector<Landmarks::iterator> tracks;
+  const int cnt = (int)sfm_data.structure.size();
+  tracks.reserve( cnt );
+
+  auto last = sfm_data.structure.end();
+  for (Landmarks::iterator it = sfm_data.structure.begin(); it != last; ++it)
   {
-#ifdef OPENMVG_USE_OPENMP
-  #pragma omp single nowait
-#endif
-  {
-      if (bConsole_verbose_)
-    {
-        ++(*my_progress_bar);
-    }
-      Landmark landmark;
-      if (robust_triangulation(sfm_data, tracks_it.second.obs, landmark))
-      {
-        tracks_it.second = landmark;
+    tracks.push_back( it );
   }
-      else
-  {
-        // Track must be deleted
+
 #ifdef OPENMVG_USE_OPENMP
-        #pragma omp critical
+#pragma omp parallel for
 #endif
-        rejectedId.push_front(tracks_it.first);
-      }
+  for (int i = 0; i < cnt; i++)
+  {
+    auto& track = *tracks[ i ];
+    if (robust_triangulation( sfm_data, track.second.obs, track.second))
+    {
+      tracks[ i ] = last;
     }
   }
-  // Erase the unsuccessful triangulated tracks
-  for (auto& it : rejectedId)
+
+  for (int i = 0; i != cnt; ++i)
+  {
+    if (tracks[ i ] != last)
     {
-    sfm_data.structure.erase(it);
+      sfm_data.structure.erase( tracks[ i ] );
+    }
   }
 }
 
@@ -304,6 +318,7 @@ Observations ObservationsSampler
 )
 {
   Observations sampled_obs;
+  sampled_obs.reserve(samples.size());
   for (const auto& idx : samples)
   {
     Observations::const_iterator obs_it = obs.cbegin();
@@ -311,6 +326,24 @@ Observations ObservationsSampler
     sampled_obs.insert(*obs_it);
   }
   return sampled_obs;
+}
+
+void ObservationsSampler
+(
+  Observations& sampled_obs,
+  const Observations & obs,
+  const std::uint32_t* samples,
+  size_t cnt
+)
+{
+  sampled_obs.clear();
+  for (size_t i = 0; i != cnt; ++i)
+  {
+    const std::uint32_t idx = samples[i];
+    Observations::const_iterator obs_it = obs.cbegin();
+    std::advance(obs_it, idx);
+    sampled_obs.insert(*obs_it);
+  }
 }
 
 /// Robustly try to estimate the best 3D point using a ransac scheme
@@ -363,22 +396,49 @@ const
 
   // - Ransac variables
   Vec3 best_model = Vec3::Zero();
-  std::deque<IndexT> best_inlier_set;
+  FixedArray<IndexT, 32, 0 /* No init */> best_inlier_set(obs.size()); // Never larger
+  size_t best_inlier_set_size = 0;
   double best_error = std::numeric_limits<double>::max();
 
   //--
   // Random number generation
   std::mt19937 random_generator(std::mt19937::default_seed);
 
+  const size_t num_obs = obs.size();
+  std::vector<const View*> obsViews(num_obs);
+  std::vector<const IntrinsicBase*> obsCams(num_obs);
+  std::vector<const std::pair<const IndexT, Pose3>*> obsPoses(num_obs);
+
+  const auto& intrinsics = sfm_data.GetIntrinsics();
+  const auto& allPoses = sfm_data.poses;
+  size_t idx = 0;
+  for (const auto & obs_it : obs)
+  {
+    const View* view = sfm_data.views.at(obs_it.first).get();
+    obsViews[idx] = view;
+
+    if (!view) continue;
+    if (view->id_intrinsic == UndefinedIndexT) continue;
+    if (view->id_pose == UndefinedIndexT) continue;
+
+    obsCams[idx] = intrinsics.at(view->id_intrinsic).get();
+    auto it = intrinsics.find(view->id_intrinsic);
+    if (it == intrinsics.end()) continue;
+    auto itPose = allPoses.find(view->id_pose);
+    if (itPose == allPoses.end()) continue;
+    obsPoses[idx] = &(*itPose);
+  }
+
+  std::vector<uint32_t> samples;
   // - Ransac loop
+  Observations minimal_sample;
   for (IndexT i = 0; i < nbIter; ++i)
   {
-    std::vector<uint32_t> samples;
-    robust::UniformSample(min_sample_index_, obs.size(), random_generator, &samples);
-
+    FixedArray<uint32_t, 16, 0 /* No init */> samples(obs.size());
+    const size_t numActualSamples = robust::UniformSample2(min_sample_index_, obs.size(), random_generator, samples.get());
     Vec3 X;
     // Hypothesis generation
-    const auto minimal_sample = ObservationsSampler(obs, samples);
+    ObservationsSampler(minimal_sample, obs, samples.get(), numActualSamples);
 
     if (!track_triangulation(sfm_data, minimal_sample, X, etri_method_))
       continue;
@@ -387,22 +447,32 @@ const
     if (!track_check_predicate(minimal_sample, sfm_data, X, predicate_binding))
       continue;
 
-    std::deque<IndexT> inlier_set;
+    FixedArray<IndexT, 32, 0 /* No init */> inlier_set(obs.size()); // Never larger
+    size_t inlier_cnt = 0;
     double current_error = 0.0;
     // inlier/outlier classification according pixel residual errors.
+    const auto& intrinsics = sfm_data.GetIntrinsics();
+    const auto& poses = sfm_data.GetPoses();
     for (const auto & obs_it : obs)
     {
       const View * view = sfm_data.views.at(obs_it.first).get();
-      if (!sfm_data.IsPoseAndIntrinsicDefined(view))
-        continue;
-      const IntrinsicBase & cam =  *sfm_data.GetIntrinsics().at(view->id_intrinsic).get();
-      const Pose3 pose = sfm_data.GetPoseOrDie(view);
-      if (!CheiralityTest(cam(obs_it.second.x), pose, X))
+
+      if (!view) continue;
+      if (view->id_intrinsic == UndefinedIndexT) continue;
+      if (view->id_pose == UndefinedIndexT) continue;
+      auto it = intrinsics.find(view->id_intrinsic);
+      if (it == intrinsics.end()) continue;
+      auto itPose = poses.find(view->id_pose);
+      if (itPose == poses.end()) continue;
+
+      const IntrinsicBase & cam =  *(it->second.get());
+      const Pose3& pose = itPose->second;
+      if (!CheiralityTest(cam.oneBearing(obs_it.second.x), pose, X))
         continue;
       const double residual_sq = cam.residual(pose(X), obs_it.second.x).squaredNorm();
       if (residual_sq < dSquared_pixel_threshold)
       {
-        inlier_set.push_front(obs_it.first);
+        inlier_set[inlier_cnt++] = obs_it.first;
         current_error += residual_sq;
       }
       else
@@ -414,23 +484,26 @@ const
     // - is the best one we have seen so far.
     // - has sufficient inliers.
     if (current_error < best_error &&
-      inlier_set.size() >= min_required_inliers_)
+      inlier_cnt >= min_required_inliers_)
     {
       best_model = X;
-      best_inlier_set = inlier_set;
+      std::copy(std::begin(inlier_set), std::begin(inlier_set)+inlier_cnt, std::begin(best_inlier_set));
+      best_inlier_set_size = inlier_cnt;
       best_error = current_error;
     }
   }
-  if (!best_inlier_set.empty() && best_inlier_set.size() >= min_required_inliers_)
+
+  if (best_inlier_set_size >= min_required_inliers_)
   {
     // Update information (3D landmark position & valid observations)
     landmark.X = best_model;
-    for (const IndexT & val : best_inlier_set)
+    for (size_t i = 0; i != best_inlier_set_size; ++i)
     {
-      landmark.obs[val] = obs.at(val);
+      const auto val = best_inlier_set[i];
+      landmark.obs.insert({ val, obs.at(val) }); // JPB WIP BUG  emplace(val, obs.at(val));
     }
   }
-  return !best_inlier_set.empty();
+  return best_inlier_set_size;
 }
 
 } // namespace sfm

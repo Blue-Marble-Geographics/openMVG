@@ -122,6 +122,15 @@ using class_type = Intrinsic_Spherical;
     return bearing;
   }
 
+  void allBearings( Mat3X& result, const Mat2X& points ) const override
+  {
+    result.resize( 3, points.cols() );
+    for (Mat2X::Index i( 0 ); i < points.cols(); ++i)
+    {
+      result.col( i ) = Intrinsic_Spherical::oneBearing( points.col( i ) );
+    }
+  }
+
   Vec3 oneBearing(const Vec2& p) const override
   {
     const Vec2 uv = ima2cam(p);

@@ -87,14 +87,15 @@ class CERES_EXPORT Solver {
       min_relative_decrease = 1e-3;
       min_lm_diagonal = 1e-6;
       max_lm_diagonal = 1e32;
-      max_num_consecutive_invalid_steps = 1; //5;
+      max_num_consecutive_invalid_steps = 1; // JPB WIP 5;
       // not good 0.89453e-1 (0.089453f)
       // 0.023363275f (25%) passes
       // 0.04522655f (50%)
       // 0.067339825 (75%)
       // pass 1.5e-3 (0.0015)
-      function_tolerance = 0.0342949125;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;
-      gradient_tolerance = 1.5e-6; //1.5e-6;
+      // JPB WIP Could push this higher.
+      function_tolerance = 0.0342949125;// 0.89453e-1 just short of unit-test failure 0.89453e-1; // 0.89531e-1 fails 1.5e-2; //1.5e-3;     
+      gradient_tolerance = 1.5e-2; // Previously 1.5e-6;
       parameter_tolerance = 1.6e-1; //1.5e-3; //1.5e-3;
 
 #if defined(CERES_NO_SUITESPARSE) && defined(CERES_NO_CXSPARSE) && !defined(CERES_ENABLE_LGPL_CODE)  // NOLINT
