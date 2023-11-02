@@ -71,14 +71,14 @@ class DenseJacobianWriter {
              double **jacobians,
              SparseMatrix* jacobian) {
     DenseSparseMatrix* dense_jacobian = down_cast<DenseSparseMatrix*>(jacobian);
-    const ResidualBlock* residual_block =
+    const ResidualBlock& residual_block =
         program_->residual_blocks()[residual_id];
-    int num_parameter_blocks = residual_block->NumParameterBlocks();
-    int num_residuals = residual_block->NumResiduals();
+    int num_parameter_blocks = residual_block.NumParameterBlocks();
+    int num_residuals = residual_block.NumResiduals();
 
     // Now copy the jacobians for each parameter into the dense jacobian matrix.
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
+      ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
 
       // If the parameter block is fixed, then there is nothing to do.
       if (parameter_block->IsConstant()) {

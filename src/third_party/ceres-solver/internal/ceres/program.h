@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 #include "ceres/internal/port.h"
+#include "ceres/ordered_groups.h"
+#include "ceres/residual_block.h"
 
 namespace ceres {
 namespace internal {
@@ -61,9 +63,9 @@ class Program {
 
   // The ordered parameter and residual blocks for the program.
   const std::vector<ParameterBlock*>& parameter_blocks() const;
-  const std::vector<ResidualBlock*>& residual_blocks() const;
+  const std::vector<ResidualBlock>& residual_blocks() const;
   std::vector<ParameterBlock*>* mutable_parameter_blocks();
-  std::vector<ResidualBlock*>* mutable_residual_blocks();
+  std::vector<ResidualBlock>& mutable_residual_blocks();
 
   // Serialize to/from the program and update states.
   //
@@ -121,7 +123,7 @@ class Program {
   // parameter_blocks as that would violate the assumption that it
   // is an independent set in the Hessian matrix.
   bool IsParameterBlockSetIndependent(
-      const std::set<double*>& independent_set) const;
+    const std::set<double*, std::less<double*>, Mallocator<double*>>& independent_set) const;
 
   // Create a TripletSparseMatrix which contains the zero-one
   // structure corresponding to the block sparsity of the transpose of
@@ -163,6 +165,12 @@ class Program {
   // TODO(keir): If necessary, also dump the residual blocks.
   std::string ToString() const;
 
+  void Reserve(int num_parameter_blocks, int num_residual_blocks)
+  {
+    parameter_blocks_.reserve(num_parameter_blocks);
+    residual_blocks_.reserve(num_residual_blocks);
+  }
+
  private:
   // Remove constant parameter blocks and residual blocks with no
   // varying parameter blocks while preserving their relative order.
@@ -181,7 +189,7 @@ class Program {
 
   // The Program does not own the ParameterBlock or ResidualBlock objects.
   std::vector<ParameterBlock*> parameter_blocks_;
-  std::vector<ResidualBlock*> residual_blocks_;
+  std::vector<ResidualBlock> residual_blocks_;
 
   friend class ProblemImpl;
 };

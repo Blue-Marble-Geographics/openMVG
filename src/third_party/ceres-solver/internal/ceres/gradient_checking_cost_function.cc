@@ -75,9 +75,7 @@ class GradientCheckingCostFunction : public CostFunction {
         extra_info_(extra_info),
         callback_(callback) {
     CHECK_NOTNULL(callback_);
-    const vector<int32>& parameter_block_sizes =
-        function->parameter_block_sizes();
-    *mutable_parameter_block_sizes() = parameter_block_sizes;
+    copy_parameter_block_sizes(function->parameter_block_sizes(), function->num_parameter_block_sizes());
     set_num_residuals(function->num_residuals());
   }
 
@@ -107,8 +105,8 @@ class GradientCheckingCostFunction : public CostFunction {
     MatrixRef(residuals, num_residuals, 1) = results.residuals;
 
     // Copy the original jacobian blocks into the jacobians array.
-    const vector<int32>& block_sizes = function_->parameter_block_sizes();
-    for (int k = 0; k < block_sizes.size(); k++) {
+    const int32* block_sizes = function_->parameter_block_sizes();
+    for (int k = 0, cnt = num_parameter_block_sizes(); k < cnt; k++) {
       if (jacobians[k] != NULL) {
         MatrixRef(jacobians[k],
                   results.jacobians[k].rows(),
@@ -217,9 +215,9 @@ ProblemImpl* CreateGradientCheckingProblemImpl(
   // For every ResidualBlock in problem_impl, create a new
   // ResidualBlock by wrapping its CostFunction inside a
   // GradientCheckingCostFunction.
-  const vector<ResidualBlock*>& residual_blocks = program->residual_blocks();
+  const vector<ResidualBlock>& residual_blocks = program->residual_blocks();
   for (int i = 0; i < residual_blocks.size(); ++i) {
-    ResidualBlock* residual_block = residual_blocks[i];
+    const ResidualBlock& residual_block = residual_blocks[i];
 
     // Build a human readable string which identifies the
     // ResidualBlock. This is used by the GradientCheckingCostFunction
@@ -228,20 +226,20 @@ ProblemImpl* CreateGradientCheckingProblemImpl(
         "Residual block id %d; depends on parameters [", i);
     vector<double*> parameter_blocks;
     vector<const LocalParameterization*> local_parameterizations;
-    parameter_blocks.reserve(residual_block->NumParameterBlocks());
-    local_parameterizations.reserve(residual_block->NumParameterBlocks());
-    for (int j = 0; j < residual_block->NumParameterBlocks(); ++j) {
-      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
+    parameter_blocks.reserve(residual_block.NumParameterBlocks());
+    local_parameterizations.reserve(residual_block.NumParameterBlocks());
+    for (int j = 0; j < residual_block.NumParameterBlocks(); ++j) {
+      ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
       parameter_blocks.push_back(parameter_block->mutable_user_state());
       StringAppendF(&extra_info, "%p", parameter_block->mutable_user_state());
-      extra_info += (j < residual_block->NumParameterBlocks() - 1) ? ", " : "]";
+      extra_info += (j < residual_block.NumParameterBlocks() - 1) ? ", " : "]";
       local_parameterizations.push_back(problem_impl->GetParameterization(
           parameter_block->mutable_user_state()));
     }
 
     // Wrap the original CostFunction in a GradientCheckingCostFunction.
     CostFunction* gradient_checking_cost_function =
-        new GradientCheckingCostFunction(residual_block->cost_function(),
+        new GradientCheckingCostFunction(residual_block.cost_function(),
                                          &local_parameterizations,
                                          numeric_diff_options,
                                          relative_precision,
@@ -254,7 +252,7 @@ ProblemImpl* CreateGradientCheckingProblemImpl(
     // will not be the case, so this const_cast is harmless.
     gradient_checking_problem_impl->AddResidualBlock(
         gradient_checking_cost_function,
-        const_cast<LossFunction*>(residual_block->loss_function()),
+        const_cast<LossFunction*>(residual_block.loss_function()),
         std::begin(parameter_blocks), std::end(parameter_blocks));
   }
 

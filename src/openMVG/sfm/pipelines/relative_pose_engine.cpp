@@ -163,11 +163,19 @@ bool Relative_Pose_Engine::Relative_Pose_Engine::Process(
 
         // Init poses
         const Pose3 & pose_I = tiny_scene.poses[view_I->id_pose] = {Mat3::Identity(), Vec3::Zero()};
+        const auto pose_I_rotation = pose_I.rotation();
+        const auto pose_I_translation = pose_I.translation();
+
         const Pose3 & pose_J = tiny_scene.poses[view_J->id_pose] = relativePose_info.relativePose;
+        const auto pose_J_rotation = pose_J.rotation();
+        const auto pose_J_translation = pose_J.translation();
+
+        const auto& feats_per_view_i = features_provider_->feats_per_view.at(I);
+        const auto& feats_per_view_j = features_provider_->feats_per_view.at(J);
 
         // Init structure
         Landmarks & landmarks = tiny_scene.structure;
-        for (Mat::Index k = 0; k < x1.cols(); ++k)
+        for (Mat::Index k = 0, cnt = x1.cols(); k < cnt; ++k)
         {
           Vec3 X;
 
@@ -176,19 +184,20 @@ bool Relative_Pose_Engine::Relative_Pose_Engine::Process(
 
           if (Triangulate2View
           (
-            pose_I.rotation(), pose_I.translation(), a,
-            pose_J.rotation(), pose_J.translation(), b,
+            pose_I_rotation, pose_I_translation, a,
+            pose_J_rotation, pose_J_translation, b,
             X,
             triangulation_method_
           ))
           {
-            Observations obs;
-            const Vec2 obs_I = features_provider_->feats_per_view.at(I)[matches[k].i_].coords().cast<double>();
-            const Vec2 obs_J = features_provider_->feats_per_view.at(J)[matches[k].j_].coords().cast<double>();
-            obs[view_I->id_view] = {obs_I, matches[k].i_};
-            obs[view_J->id_view] = {obs_J, matches[k].j_};
-            landmarks[k].obs = obs;
-            landmarks[k].X = X;
+            const auto& match_info = matches[k];
+
+            auto& lm = landmarks[k];
+            lm.obs.clear();
+            lm.obs[view_I->id_view] ={ feats_per_view_i[match_info.i_].coords().cast<double>(), match_info.i_ };
+            lm.obs[view_J->id_view] ={ feats_per_view_j[match_info.j_].coords().cast<double>(), match_info.j_ };
+
+            lm.X = X;
           }
         }
         // - refine only Structure and Rotations & translations (keep intrinsic constant)

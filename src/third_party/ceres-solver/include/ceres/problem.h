@@ -478,6 +478,8 @@ class CERES_EXPORT Problem {
                 std::vector<double>* gradient,
                 CRSMatrix* jacobian);
 
+  void Reserve(int num_parameter_blocks, int num_residual_blocks);
+
  private:
   friend class Solver;
   friend class Covariance;

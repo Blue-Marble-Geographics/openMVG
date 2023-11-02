@@ -38,12 +38,12 @@ namespace ceres {
 // A common base class for DynamicAutoDiffCostFunction and
 // DynamicNumericDiffCostFunction which depend on methods that can add
 // parameter blocks and set the number of residuals at run time.
-class CERES_EXPORT DynamicCostFunction : public CostFunction {
+  class CERES_EXPORT DynamicCostFunction : public CostFunction {
  public:
   ~DynamicCostFunction() {}
 
   virtual void AddParameterBlock(int size) {
-    mutable_parameter_block_sizes()->push_back(size);
+   add_parameter_block_sizes(size);
   }
 
   virtual void SetNumResiduals(int num_residuals) {

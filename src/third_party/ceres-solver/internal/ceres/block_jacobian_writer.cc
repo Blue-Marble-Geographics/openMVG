@@ -60,7 +60,7 @@ void BuildJacobianLayout(const Program& program,
                          int num_eliminate_blocks,
                          vector<int*>* jacobian_layout,
                          vector<int>* jacobian_layout_storage) {
-  const vector<ResidualBlock*>& residual_blocks = program.residual_blocks();
+  const vector<ResidualBlock>& residual_blocks = program.residual_blocks();
 
   // Iterate over all the active residual blocks and determine how many E blocks
   // are there. This will determine where the F blocks start in the jacobian
@@ -85,7 +85,7 @@ void BuildJacobianLayout(const Program& program,
 
   if (!residual_blocks.empty()) {
     // Guess at the total size
-    const size_t representative_parameter_block_size = residual_blocks.front()->NumParameterBlocks();
+    const size_t representative_parameter_block_size = residual_blocks.front().NumParameterBlocks();
     residual_blocks_info.reserve(num_residual_blocks * representative_parameter_block_size);
     block_is_constant.reserve(num_residual_blocks * representative_parameter_block_size);
   }
@@ -93,20 +93,20 @@ void BuildJacobianLayout(const Program& program,
   int e_block_pos = 0;
 
   for (const auto& residual_block : residual_blocks) {
-    const size_t num_residuals = residual_block->NumResiduals();
-    const size_t num_parameter_blocks = residual_block->NumParameterBlocks();
-    ParameterBlock* const* parameter_blocks = residual_block->parameter_blocks();
+    const int num_residuals = residual_block.NumResiduals();
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
+    ParameterBlock* const* parameter_blocks = residual_block.parameter_blocks();
 
     // Advance f_block_pos over each E block for this residual.
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      const ParameterBlock* parameter_block = parameter_blocks[j];
-      const bool is_constant = parameter_block->IsConstant();
+      const ParameterBlock& parameter_block = *parameter_blocks[j];
+      const bool is_constant = parameter_block.IsConstant();
       block_is_constant.emplace_back(is_constant);
       if (!is_constant) {
-        const int parameter_block_index = parameter_block->index();
+        const int parameter_block_index = parameter_block.index();
         // Only count blocks for active parameters.
         num_jacobian_blocks++;
-        const size_t jacobian_block_size = num_residuals * parameter_block->LocalSize();
+        const size_t jacobian_block_size = num_residuals * parameter_block.LocalSize();
         int* n_block_pos_ptr = &e_block_pos;
 
         if (parameter_block_index < num_eliminate_blocks) {
@@ -180,30 +180,32 @@ SparseMatrix* BlockJacobianWriter::CreateJacobian() const {
       program_->parameter_blocks();
 
   // Construct the column blocks.
-  bs->col_sizes.resize(parameter_blocks.size());
-  bs->col_positions.resize(parameter_blocks.size());
-  for (int i = 0, cursor = 0; i < parameter_blocks.size(); ++i) {
-    CHECK_NE(parameter_blocks[i]->index(), -1);
-    CHECK(!parameter_blocks[i]->IsConstant());
+  const int num_parameter_blocks = parameter_blocks.size();
+  bs->col_sizes.resize(num_parameter_blocks);
+  bs->col_positions.resize(num_parameter_blocks);
+  for (int i = 0, cursor = 0; i < num_parameter_blocks; ++i) {
+    DCHECK_NE(parameter_blocks[i]->index(), -1);
+    DCHECK(!parameter_blocks[i]->IsConstant());
     bs->col_sizes[i] = parameter_blocks[i]->LocalSize();
     bs->col_positions[i] = cursor;
     cursor += bs->col_sizes[i];
   }
 
   // Construct the cells in each row.
-  const vector<ResidualBlock*>& residual_blocks = program_->residual_blocks();
+  const vector<ResidualBlock>& residual_blocks = program_->residual_blocks();
+  const int num_residual_blocks = residual_blocks.size();
   int row_block_position = 0;
-  bs->rows.resize(residual_blocks.size());
+  bs->rows.resize(num_residual_blocks);
 
   size_t num_total_cells = 0;
-  for (int i = 0; i < residual_blocks.size(); ++i) {
-    const ResidualBlock* residual_block = residual_blocks[i];
-
+  for (int i = 0; i < num_residual_blocks; ++i) {
+    const ResidualBlock& residual_block = residual_blocks[i];
+    auto* __restrict pbb = residual_block.parameter_blocks();
     // Size the row by the number of active parameters in this residual.
-    const int num_parameter_blocks = residual_block->NumParameterBlocks();
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
     int num_active_parameter_blocks = 0;
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      if (residual_block->parameter_blocks()[j]->index() != -1) {
+      if (pbb[j]->index() != -1) {
         num_active_parameter_blocks++;
       }
     }
@@ -214,19 +216,20 @@ SparseMatrix* BlockJacobianWriter::CreateJacobian() const {
 
   int cell_index = 0;
 
-  for (int i = 0; i < residual_blocks.size(); ++i) {
-    const ResidualBlock* residual_block = residual_blocks[i];
+  for (int i = 0; i < num_residual_blocks; ++i) {
+    const ResidualBlock& residual_block = residual_blocks[i];
+    auto* __restrict pbb = residual_block.parameter_blocks();
     CompressedRow* row = &bs->rows[i];
 
-    row->block.size = residual_block->NumResiduals();
+    row->block.size = residual_block.NumResiduals();
     row->block.position = row_block_position;
     row_block_position += row->block.size;
 
     // Size the row by the number of active parameters in this residual.
-    const int num_parameter_blocks = residual_block->NumParameterBlocks();
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
     int num_active_parameter_blocks = 0;
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      if (residual_block->parameter_blocks()[j]->index() != -1) {
+      if (pbb[j]->index() != -1) {
         num_active_parameter_blocks++;
       }
     }
@@ -236,11 +239,10 @@ SparseMatrix* BlockJacobianWriter::CreateJacobian() const {
 
     // Add layout information for the active parameters in this row.
     for (int j = 0, k = 0; j < num_parameter_blocks; ++j) {
-      const ParameterBlock* parameter_block =
-          residual_block->parameter_blocks()[j];
-      if (!parameter_block->IsConstant()) {
+      const ParameterBlock& parameter_block = *pbb[j];
+      if (!parameter_block.IsConstant()) {
         Cell& cell = row->cells[k];
-        cell.block_id = parameter_block->index();
+        cell.block_id = parameter_block.index();
         cell.position = jacobian_layout_[i][k];
 
         // Only increment k for active parameters, since there is only layout
@@ -253,7 +255,7 @@ SparseMatrix* BlockJacobianWriter::CreateJacobian() const {
   }
 
   BlockSparseMatrix* jacobian = new BlockSparseMatrix(bs);
-  CHECK_NOTNULL(jacobian);
+  DCHECK_NOTNULL(jacobian);
   return jacobian;
 }
 

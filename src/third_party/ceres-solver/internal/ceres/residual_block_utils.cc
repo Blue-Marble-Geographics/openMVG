@@ -57,8 +57,10 @@ void InvalidateEvaluation(const ResidualBlock& block,
   InvalidateArray<eUnsafe>(num_residuals, residuals);
   if (jacobians != NULL) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
-      const int parameter_block_size = block.parameter_blocks()[i]->Size();
-      InvalidateArray(num_residuals * parameter_block_size, jacobians[i]);
+      if (jacobians[i]) {
+        const int parameter_block_size = block.parameter_blocks()[i]->Size();
+        InvalidateArray<eUnsafe>(num_residuals * parameter_block_size, jacobians[i]);
+      }
     }
   }
 }

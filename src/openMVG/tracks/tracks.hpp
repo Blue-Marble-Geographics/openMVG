@@ -51,6 +51,91 @@
 #include "openMVG/tracks/flat_pair_map.hpp"
 #include "openMVG/tracks/union_find.hpp"
 
+template<class T>
+struct Mallocator2
+{
+  Mallocator2* copyAllocator = nullptr;
+  Mallocator2<T>* rebindAllocator = nullptr;
+
+  typedef T value_type;
+
+  template <typename U>
+  struct rebind
+  {
+    using other = Mallocator2<U>;
+  };
+  Mallocator2() = default;
+
+  Mallocator2(Mallocator2& allocator) :
+    copyAllocator(&Mallocator2)
+  {
+  }
+
+  template <class U>
+  Mallocator2(const Mallocator2<U>& other)
+  {
+    if (!std::is_same<T, U>::value)
+      rebindAllocator = new Mallocator2<T>();
+  }
+
+  bool operator==(const Mallocator2&) const noexcept
+  {
+    return true;
+  }
+  bool operator!=(const Mallocator2&) const noexcept
+  {
+    return false;
+  }
+
+  template <typename T>
+  std::unique_ptr<T> make_unique_uninitialized(const std::size_t size) {
+    return std::unique_ptr<T>(new typename std::remove_extent<T>::type[size]);
+  }
+
+  enum { kChunkSize = 4096 };
+  T* allocate(std::size_t n)
+  {
+    if (copyAllocator)
+      return copyAllocator->allocate(n);
+
+    if (rebindAllocator)
+      return rebindAllocator->allocate(n);
+
+    size_t num_bytes = sizeof(T)* n;
+
+    if (chunks.empty() || ( space_used + num_bytes ) > kChunkSize) {
+      //cerr << "alloc " << kChunkSize << " calls\n";
+      chunks.push_back(make_unique_uninitialized<uint8_t[]>(kChunkSize));
+      space_used = 0;
+    }
+
+    T* addr = (T*)&chunks.back()[space_used];
+    space_used += num_bytes;
+
+    return reinterpret_cast<typename std::allocator<T>::pointer>( addr );
+  }
+
+  void deallocate(T* p, std::size_t n) noexcept
+  {
+    if (copyAllocator) {
+      copyAllocator->deallocate(p, n);
+      return;
+    }
+
+    if (rebindAllocator) {
+      rebindAllocator->deallocate(p, n);
+      return;
+    }
+  }
+
+private:
+  // Can't use deque... it invalidates.
+  size_t space_used = 0;
+  std::list<std::unique_ptr<uint8_t[]>> chunks;
+};
+
+using Track_t = std::set<uint32_t, std::less<uint32_t>, Mallocator2<uint32_t> >;
+
 namespace openMVG  {
 
 namespace tracks  {
@@ -167,6 +252,7 @@ struct TracksBuilder
   {
     // 1. We need to know how much single set we will have.
     //   i.e each set is made of a tuple : (imageIndex, featureIndex)
+    // JPB Fails as unordered_set
     std::set<indexedFeaturePair> allFeatures;
     // For each couple of images list the used features
     for ( const auto & iter : map_pair_wise_matches )
@@ -419,7 +505,7 @@ public:
   void ExportToSTL(STLMAPTracks & map_tracks)
   {
     map_tracks.clear();
-    for (uint32_t k = 0; k < map_node_to_index.size(); ++k)
+    for (uint32_t k = 0, cnt = map_node_to_index.size(); k < cnt; ++k)
     {
       const auto & feat = map_node_to_index[k];
       const uint32_t & track_id = uf_tree.m_cc_parent[k];
@@ -444,7 +530,7 @@ public:
 struct SharedTrackVisibilityHelper
 {
 private:
-  using TrackIdsPerView = std::map<uint32_t, std::set<uint32_t>>;
+  using TrackIdsPerView = std::map<uint32_t, Track_t>;
 
   TrackIdsPerView track_ids_per_view_;
   const STLMAPTracks & tracks_;
@@ -483,8 +569,8 @@ public:
       return false;
 
 #if 1
-    std::set<uint32_t> new_common_track_ids;
-    std::set<uint32_t>* common_track_ids = nullptr;
+    Track_t new_common_track_ids;
+    Track_t* common_track_ids = nullptr;
     bool merged = false;
     {
       // Compute the intersection of all the track ids of the view's track ids.
@@ -516,7 +602,7 @@ public:
             }
           }
 
-          std::set<uint32_t> tmp;
+          Track_t tmp;
           std::set_intersection(
             new_common_track_ids.cbegin(), new_common_track_ids.cend(),
             track_ids.cbegin(), track_ids.cend(),

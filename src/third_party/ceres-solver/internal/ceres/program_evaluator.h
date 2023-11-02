@@ -191,7 +191,7 @@ class ProgramEvaluator : public Evaluator {
       EvaluateScratch* scratch = &evaluate_scratch_[thread_id];
 
       // Prepare block residuals if requested.
-      const ResidualBlock* residual_block = program_->residual_blocks()[i];
+      const ResidualBlock& residual_block = program_->residual_blocks()[i];
       double* block_residuals = NULL;
       if (residuals != NULL) {
         block_residuals = residuals + residual_layout_[i];
@@ -202,7 +202,7 @@ class ProgramEvaluator : public Evaluator {
       // Prepare block jacobians if requested.
       double** block_jacobians = NULL;
       if (jacobian != NULL || gradient != NULL) {
-        preparer->Prepare(residual_block,
+        preparer->Prepare(&residual_block,
                           i,
                           jacobian,
                           scratch->jacobian_block_ptrs.get());
@@ -211,7 +211,7 @@ class ProgramEvaluator : public Evaluator {
 
       // Evaluate the cost, residuals, and jacobians.
       double block_cost;
-      if (!residual_block->Evaluate(
+      if (!residual_block.Evaluate(
               evaluate_options.apply_loss_function,
               &block_cost,
               block_residuals,
@@ -237,11 +237,11 @@ class ProgramEvaluator : public Evaluator {
 
       // Compute and store the gradient, if it was requested.
       if (gradient != NULL) {
-        int num_residuals = residual_block->NumResiduals();
-        int num_parameter_blocks = residual_block->NumParameterBlocks();
+        int num_residuals = residual_block.NumResiduals();
+        int num_parameter_blocks = residual_block.NumParameterBlocks();
         for (int j = 0; j < num_parameter_blocks; ++j) {
           const ParameterBlock* parameter_block =
-              residual_block->parameter_blocks()[j];
+              residual_block.parameter_blocks()[j];
           if (parameter_block->IsConstant()) {
             continue;
           }
@@ -337,12 +337,12 @@ class ProgramEvaluator : public Evaluator {
 
   static void BuildResidualLayout(const Program& program,
                                   std::vector<int>* residual_layout) {
-    const std::vector<ResidualBlock*>& residual_blocks =
+    const std::vector<ResidualBlock>& residual_blocks =
         program.residual_blocks();
     residual_layout->resize(program.NumResidualBlocks());
     int residual_pos = 0;
-    for (int i = 0; i < residual_blocks.size(); ++i) {
-      const int num_residuals = residual_blocks[i]->NumResiduals();
+    for (int i = 0, cnt = residual_blocks.size(); i < cnt; ++i) {
+      const int num_residuals = residual_blocks[i].NumResiduals();
       (*residual_layout)[i] = residual_pos;
       residual_pos += num_residuals;
     }

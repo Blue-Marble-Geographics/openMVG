@@ -60,7 +60,7 @@ int ComputeStableSchurOrdering(const Program& program,
   const auto cnt = parameter_blocks.size();
   ordering->reserve(cnt); // const + non-const parameter blocks.
 
-  for (const auto& __restrict parameter_block : parameter_blocks) {
+  for (const auto& parameter_block : parameter_blocks) {
     if (auto vertex = graph.FindVertex(parameter_block)) {
       ordering->push_back(parameter_block);
     }
@@ -71,7 +71,7 @@ int ComputeStableSchurOrdering(const Program& program,
   event_logger.AddEvent("StableIndependentSet");
 
   // Add the excluded blocks to back of the ordering vector.
-  for (const auto& __restrict parameter_block : parameter_blocks) {
+  for (const auto& parameter_block : parameter_blocks) {
     if (parameter_block->IsConstant()) {
       ordering->push_back(parameter_block);
     }
@@ -137,44 +137,26 @@ Graph<ParameterBlock*> CreateHessianGraph(const Program& program) {
     }
   );
 
-  for (const auto& __restrict residual_block : program.residual_blocks()) {
-    const int num_parameter_blocks = residual_block->NumParameterBlocks();
+  for (const auto& residual_block : program.residual_blocks()) {
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
     FixedArray<std::pair<ParameterBlock*, FlatSet<ParameterBlock*>*>, 10, 0 /* No init */> usedBlocks(num_parameter_blocks);
     size_t numUsedBlocks = 0;
 
     ParameterBlock* const* parameter_blocks =
-        residual_block->parameter_blocks();
+        residual_block.parameter_blocks();
 
     for (int i = 0; i < num_parameter_blocks; ++i) {
-      const auto& __restrict parameter_block = parameter_blocks[ i ];
+      const auto& parameter_block = parameter_blocks[i];
       if (!parameter_block->IsConstant() ) {
         usedBlocks[numUsedBlocks++] = { parameter_block, nullptr };
       }
     }
 
-#if 1
     for (int j = 0; j < numUsedBlocks; ++j) {
       for (int k = j + 1; k < numUsedBlocks; ++k) {
         graph.AddEdgeExplicitly(usedBlocks[j], usedBlocks[k]);
       }
     }
-#else
-    for (int j = 0; j < num_parameter_blocks; ++j) {
-      const auto& __restrict parameter_block_j = parameter_blocks[j];
-      if (parameter_block_j->IsConstant()) {
-        continue;
-      }
-
-      for (int k = j + 1; k < num_parameter_blocks; ++k) {
-        const auto& __restrict parameter_block_k = parameter_blocks[k];
-        if (parameter_block_k->IsConstant()) {
-          continue;
-        }
-
-        graph.AddEdge(parameter_block_j, parameter_block_k);
-      }
-    }
-#endif
   }
 
   return graph;
@@ -187,9 +169,9 @@ void OrderingToGroupSizes(const ParameterBlockOrdering* ordering,
     return;
   }
 
-  const map<int, set<double*> >& group_to_elements =
+  const auto& group_to_elements =
       ordering->group_to_elements();
-  for (map<int, set<double*> >::const_iterator it = group_to_elements.begin();
+  for (auto it = group_to_elements.begin();
        it != group_to_elements.end();
        ++it) {
     group_sizes->push_back(it->second.size());

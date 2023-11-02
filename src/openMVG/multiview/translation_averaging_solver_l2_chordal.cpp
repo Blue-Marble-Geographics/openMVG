@@ -64,6 +64,7 @@ bool solve_translations_problem_l2_chordal
   int max_iterations
 )
 {
+#if 0 // JPB
   // seed the random number generator
   std::srand( std::time( nullptr ) );
 
@@ -147,6 +148,9 @@ bool solve_translations_problem_l2_chordal
     }
   }
   return summary.IsSolutionUsable();
+#else
+  return false;
+#endif
 }
 
 void

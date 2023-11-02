@@ -63,9 +63,9 @@ void DynamicCompressedRowJacobianWriter::Write(int residual_id,
       down_cast<DynamicCompressedRowSparseMatrix*>(base_jacobian);
 
   // Get the `residual_block` of interest.
-  const ResidualBlock* residual_block =
+  const ResidualBlock& residual_block =
       program_->residual_blocks()[residual_id];
-  const int num_residuals = residual_block->NumResiduals();
+  const int num_residuals = residual_block.NumResiduals();
 
   vector<pair<int, int> > evaluated_jacobian_blocks;
   CompressedRowJacobianWriter::GetOrderedParameterBlocks(

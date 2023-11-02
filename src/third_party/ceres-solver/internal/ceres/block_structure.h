@@ -56,7 +56,7 @@ struct Block {
 };
 
 struct Cell {
-  Cell() : block_id(-1), position(-1) {}
+  Cell() {}
   Cell(int block_id_, int position_)
       : block_id(block_id_), position(position_) {}
 
@@ -100,10 +100,12 @@ struct CompressedRowBlockStructure {
   std::vector<Cell> all_cells;
 };
 
+#if 0
 struct CompressedColumnBlockStructure {
   std::vector<Block> rows;
   std::vector<CompressedColumn> cols;
 };
+#endif
 
 }  // namespace internal
 }  // namespace ceres

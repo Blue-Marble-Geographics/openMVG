@@ -284,4 +284,10 @@ void Problem::GetResidualBlocksForParameterBlock(
                                                     residual_blocks);
 }
 
+void Problem::Reserve(int num_parameter_blocks, int num_residual_blocks)
+{
+  problem_impl_->Reserve(num_parameter_blocks, num_residual_blocks);
+}
+
+
 }  // namespace ceres

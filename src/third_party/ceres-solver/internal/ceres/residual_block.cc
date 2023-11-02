@@ -81,7 +81,7 @@ bool ResidualBlock::Evaluate(const bool apply_loss_function,
   FixedArray<double*, 10, 0 /* No init */> global_jacobians(num_parameter_blocks);
   if (jacobians != NULL) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
-      const ParameterBlock* parameter_block = parameter_blocks_[i];
+      const ParameterBlock* __restrict parameter_block = parameter_blocks_[i];
       if (jacobians[i] != NULL &&
           parameter_block->LocalParameterizationJacobian() != NULL) {
         global_jacobians[i] = scratch;
@@ -135,7 +135,7 @@ bool ResidualBlock::Evaluate(const bool apply_loss_function,
   if (jacobians != NULL) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
       if (jacobians[i] != NULL) {
-        const ParameterBlock* parameter_block = parameter_blocks_[i];
+        const ParameterBlock* __restrict parameter_block = parameter_blocks_[i];
 
         // Apply local reparameterization to the jacobians.
         if (parameter_block->LocalParameterizationJacobian() != NULL) {
@@ -202,10 +202,10 @@ int ResidualBlock::NumScratchDoublesForEvaluate() const {
   int num_parameters = NumParameterBlocks();
   int scratch_doubles = 1;
   for (int i = 0; i < num_parameters; ++i) {
-    const ParameterBlock* parameter_block = parameter_blocks_[i];
-    if (!parameter_block->IsConstant() &&
-        parameter_block->LocalParameterizationJacobian() != NULL) {
-      scratch_doubles += parameter_block->Size();
+    const ParameterBlock& parameter_block = *parameter_blocks_[i];
+    if (!parameter_block.IsConstant() &&
+        parameter_block.LocalParameterizationJacobian() != NULL) {
+      scratch_doubles += parameter_block.Size();
     }
   }
   scratch_doubles *= NumResiduals();

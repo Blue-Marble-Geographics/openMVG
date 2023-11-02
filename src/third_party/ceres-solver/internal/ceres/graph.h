@@ -75,7 +75,8 @@ uint64_t u;
     delete[] b;
 }
 
-template<class T>
+enum IsFixedSize_t { eNotFixedSize = false, eFixedSize = true };
+template<class T, IsFixedSize_t U = eNotFixedSize>
 struct FlatSet
 {
   enum { kDefaultSize = 8 };
@@ -91,20 +92,19 @@ struct FlatSet
   {
     size_t start = Hash(v);
     size_t i = start;
+    const size_t end = capacity();
     do {
       if (mData[i] == v) {
         return &mData[i];
       } else if (!mData[i]) {
         return nullptr;
       }
-      if (++i >= mData.size()) {
+      if (++i >= end) {
         i = 0;
       }
-      if (i == start) {
-        std::cout << "yies\n";
-        return nullptr;
-      }
-    } while (1);
+    } while (i != start);
+
+    return nullptr;
   }
 
   void rehash(size_t defaultSize = kDefaultSize)
@@ -134,14 +134,16 @@ struct FlatSet
 
   std::pair<T*, bool> insert(const T& e) noexcept
   {
-    if (size()+1 > capacity()) {
-      // Assure room is available in the set even if the
-      // item is not inserted.
-      rehash();
+    if constexpr (U == eNotFixedSize) {
+      if (size()+1 > capacity()) {
+        // Assure room is available in the set even if the
+        // item is not inserted.
+        rehash();
+      }
     }
 
     auto at = std::begin(mData) + Hash(e);
-    auto last = mData.end();
+    auto last = std::begin(mData) + capacity();
     while (*at != e) {
       if (!*at) {
         // Found an empty slot, use it for the item.
@@ -170,9 +172,6 @@ struct FlatSet
   size_t         mCnt = 0;
   std::vector<T> mData;
 };
-
-extern std::atomic<double> travel;
-extern std::atomic<double> tttries;
 
 template<class T>
 struct FixedHashSet
@@ -226,6 +225,60 @@ struct FixedHashSet
   }
 
   std::vector<std::pair<T, FlatSet<T>>> mBuckets;
+};
+
+template<class S, class T>
+struct FixedHashMap
+{
+  FixedHashMap()
+  {}
+
+  explicit FixedHashMap(int maxBuckets) :
+    mBuckets(maxBuckets)
+  {}
+
+  auto insert(const S& key, const T& value)
+  {
+    return mBuckets[Hash(key)].insert(vertex);
+  }
+
+  auto& operator[](const S& key)
+  {
+    //tttries = tttries + 1;
+    // Guaranteed present.
+    auto it = std::begin(mBuckets) + Hash(key);
+    do {
+      //travel = travel + 1;
+      if (it->first == key) {
+        return it->second;
+      }
+      else {
+        if (!it->first) {
+          it->first = key;
+          return it->second;
+        }
+      }
+      if (++it == std::end( mBuckets )) {
+        it = std::begin( mBuckets );
+      }
+    } while (1);
+  }
+
+  const auto& operator[](const S& key) const noexcept
+  {
+    return const_cast<FixedHashMap<S>&>(*this)[key];
+  }
+
+  size_t Hash(const S& key) const noexcept {
+    return ((size_t)key) % mBuckets.size();
+  }
+
+  void resize(size_t maxBuckets)
+  {
+    mBuckets.resize(maxBuckets);
+  }
+
+  std::vector<std::pair<S, T>> mBuckets;
 };
 
 namespace ceres {
@@ -292,7 +345,7 @@ struct Graph
     return vertices_.mData;
   }
 
-  FlatSet<T> vertices_;
+  FlatSet<T, eFixedSize> vertices_;
   FixedHashSet<T> edges_;
 };
 

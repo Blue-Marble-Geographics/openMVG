@@ -50,6 +50,7 @@
 namespace ceres {
 namespace internal {
 
+static double fill_value = kImpossibleValue;
 // Fill the array x with an impossible value that the user code is
 // never expected to compute.
 enum eIAChecking : bool { eUnsafe = false, eSafe = true };
@@ -58,9 +59,13 @@ void InvalidateArray(const int size, double* const __restrict x) {
   if ((T == eSafe) && !x) {
     return;
   }
+#ifdef _MSC_VER
+  __stosq((unsigned long long*) x, fill_value, size);
+#else
   for (int i = 0; i < size; ++i) {
     x[i] = kImpossibleValue;
   }
+#endif
 }
 
 // Check if all the entries of the array x are valid, i.e. all the

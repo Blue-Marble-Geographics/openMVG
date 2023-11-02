@@ -23,6 +23,9 @@ struct Observation
   Observation():id_feat(UndefinedIndexT) {  }
   Observation(const Vec2 & p, IndexT idFeat): x(p), id_feat(idFeat) {}
 
+  enum ObservationInit_t { eUndefined = true };
+  Observation(ObservationInit_t) {}
+
   Vec2 x;
   IndexT id_feat;
 
@@ -139,7 +142,7 @@ struct Observations
       }
     }
 
-    obs.emplace_back(i, Observation());
+    obs.emplace_back(i, Observation(Observation::eUndefined));
 
     sorted = false;
 

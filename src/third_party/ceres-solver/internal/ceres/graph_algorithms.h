@@ -284,8 +284,9 @@ int StableIndependentSetOrderingFaster(const Graph<Vertex>& graph,
   );
 
   // Mark all vertices white.
-  HashMap<Vertex, char> vertex_color;
-  vertex_color.reserve(vertices.size());
+  //HashMap<Vertex, char> vertex_color;
+  FixedHashMap<Vertex, char> vertex_color;
+  vertex_color.resize(vertices.size()*4);
   for (const auto& v : vertices) {
     if (v) {
       ++num_vertices;

@@ -185,6 +185,8 @@ class ProblemImpl {
     return residual_block_set_;
   }
 
+  void Reserve(int num_parameter_blocks, int num_residual_blocks);
+
  private:
   ParameterBlock* InternalAddParameterBlock(double* values, int size);
   void InternalRemoveResidualBlock(ResidualBlock* residual_block);

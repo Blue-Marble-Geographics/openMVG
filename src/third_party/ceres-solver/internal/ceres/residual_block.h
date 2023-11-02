@@ -68,6 +68,7 @@ class ParameterBlock;
 // loss functions, and parameter blocks.
 class ResidualBlock {
  public:
+  ResidualBlock() {}
   // Construct the residual block with the given cost/loss functions. Loss may
   // be null. The index is the index of the residual block in the Program's
   // residual_blocks array.
@@ -116,7 +117,7 @@ class ResidualBlock {
 
   // Number of variable blocks that this residual term depends on.
   int NumParameterBlocks() const {
-    return cost_function_->parameter_block_sizes().size();
+    return cost_function_->num_parameter_block_sizes();
   }
 
   // The size of the residual vector returned by this residual function.

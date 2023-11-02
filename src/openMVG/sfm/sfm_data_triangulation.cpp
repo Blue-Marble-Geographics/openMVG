@@ -429,7 +429,6 @@ const
     obsPoses[idx] = &(*itPose);
   }
 
-  std::vector<uint32_t> samples;
   // - Ransac loop
   Observations minimal_sample;
   for (IndexT i = 0; i < nbIter; ++i)
@@ -453,9 +452,11 @@ const
     // inlier/outlier classification according pixel residual errors.
     const auto& intrinsics = sfm_data.GetIntrinsics();
     const auto& poses = sfm_data.GetPoses();
-    for (const auto & obs_it : obs)
+    size_t cnt = obs.size();
+    for (auto obs_it = std::begin(obs); cnt--; )
     {
-      const View * view = sfm_data.views.at(obs_it.first).get();
+      const IndexT x = obs_it->first;
+      const View * view = sfm_data.views.at(x).get();
 
       if (!view) continue;
       if (view->id_intrinsic == UndefinedIndexT) continue;
@@ -467,12 +468,13 @@ const
 
       const IntrinsicBase & cam =  *(it->second.get());
       const Pose3& pose = itPose->second;
-      if (!CheiralityTest(cam.oneBearing(obs_it.second.x), pose, X))
+      const auto& coord = obs_it->second.x;
+      if (!CheiralityTest(cam.oneBearing(coord), pose, X))
         continue;
-      const double residual_sq = cam.residual(pose(X), obs_it.second.x).squaredNorm();
+      const double residual_sq = cam.residual(pose(X), coord).squaredNorm();
       if (residual_sq < dSquared_pixel_threshold)
       {
-        inlier_set[inlier_cnt++] = obs_it.first;
+        inlier_set[inlier_cnt++] = x;
         current_error += residual_sq;
       }
       else

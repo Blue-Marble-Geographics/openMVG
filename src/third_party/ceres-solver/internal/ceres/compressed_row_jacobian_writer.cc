@@ -59,12 +59,12 @@ void CompressedRowJacobianWriter::PopulateJacobianRowAndColumnBlockVectors(
     col_blocks[i] = parameter_blocks[i]->LocalSize();
   }
 
-  const vector<ResidualBlock*>& residual_blocks =
+  const vector<ResidualBlock>& residual_blocks =
       program->residual_blocks();
   vector<int>& row_blocks = *(jacobian->mutable_row_blocks());
   row_blocks.resize(residual_blocks.size());
   for (int i = 0; i < residual_blocks.size(); ++i) {
-    row_blocks[i] = residual_blocks[i]->NumResiduals();
+    row_blocks[i] = residual_blocks[i].NumResiduals();
   }
 }
 
@@ -72,13 +72,13 @@ void CompressedRowJacobianWriter::GetOrderedParameterBlocks(
       const Program* program,
       int residual_id,
       vector<pair<int, int> >* evaluated_jacobian_blocks) {
-  const ResidualBlock* residual_block =
+  const ResidualBlock& residual_block =
       program->residual_blocks()[residual_id];
-  const int num_parameter_blocks = residual_block->NumParameterBlocks();
+  const int num_parameter_blocks = residual_block.NumParameterBlocks();
 
   for (int j = 0; j < num_parameter_blocks; ++j) {
     const ParameterBlock* parameter_block =
-        residual_block->parameter_blocks()[j];
+        residual_block.parameter_blocks()[j];
     if (!parameter_block->IsConstant()) {
       evaluated_jacobian_blocks->push_back(
           make_pair(parameter_block->index(), j));
@@ -88,7 +88,7 @@ void CompressedRowJacobianWriter::GetOrderedParameterBlocks(
 }
 
 SparseMatrix* CompressedRowJacobianWriter::CreateJacobian() const {
-  const vector<ResidualBlock*>& residual_blocks =
+  const vector<ResidualBlock>& residual_blocks =
       program_->residual_blocks();
 
   int total_num_residuals = program_->NumResiduals();
@@ -97,11 +97,11 @@ SparseMatrix* CompressedRowJacobianWriter::CreateJacobian() const {
   // Count the number of jacobian nonzeros.
   int num_jacobian_nonzeros = 0;
   for (int i = 0; i < residual_blocks.size(); ++i) {
-    ResidualBlock* residual_block = residual_blocks[i];
-    const int num_residuals = residual_block->NumResiduals();
-    const int num_parameter_blocks = residual_block->NumParameterBlocks();
+    const ResidualBlock& residual_block = residual_blocks[i];
+    const int num_residuals = residual_block.NumResiduals();
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
+      ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
       if (!parameter_block->IsConstant()) {
         num_jacobian_nonzeros += num_residuals * parameter_block->LocalSize();
       }
@@ -126,15 +126,15 @@ SparseMatrix* CompressedRowJacobianWriter::CreateJacobian() const {
   int row_pos = 0;
   rows[0] = 0;
   for (int i = 0; i < residual_blocks.size(); ++i) {
-    const ResidualBlock* residual_block = residual_blocks[i];
-    const int num_parameter_blocks = residual_block->NumParameterBlocks();
+    const ResidualBlock& residual_block = residual_blocks[i];
+    const int num_parameter_blocks = residual_block.NumParameterBlocks();
 
     // Count the number of derivatives for a row of this residual block and
     // build a list of active parameter block indices.
     int num_derivatives = 0;
     vector<int> parameter_indices;
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
+      ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
       if (!parameter_block->IsConstant()) {
         parameter_indices.push_back(parameter_block->index());
         num_derivatives += parameter_block->LocalSize();
@@ -147,7 +147,7 @@ SparseMatrix* CompressedRowJacobianWriter::CreateJacobian() const {
         parameter_indices.end()) {
       std::string parameter_block_description;
       for (int j = 0; j < num_parameter_blocks; ++j) {
-        ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
+        ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
         parameter_block_description +=
             parameter_block->ToString() + "\n";
       }
@@ -155,12 +155,12 @@ SparseMatrix* CompressedRowJacobianWriter::CreateJacobian() const {
                  << "Duplicate parameter blocks detected in a cost function. "
                  << "This should never happen. Please report this to "
                  << "the Ceres developers.\n"
-                 << "Residual Block: " << residual_block->ToString() << "\n"
+                 << "Residual Block: " << residual_block.ToString() << "\n"
                  << "Parameter Blocks: " << parameter_block_description;
     }
 
     // Update the row indices.
-    const int num_residuals = residual_block->NumResiduals();
+    const int num_residuals = residual_block.NumResiduals();
     for (int j = 0; j < num_residuals; ++j) {
       rows[row_pos + j + 1] = rows[row_pos + j] + num_derivatives;
     }
@@ -204,9 +204,9 @@ void CompressedRowJacobianWriter::Write(int residual_id,
   double* jacobian_values = jacobian->mutable_values();
   const int* jacobian_rows = jacobian->rows();
 
-  const ResidualBlock* residual_block =
+  const ResidualBlock& residual_block =
       program_->residual_blocks()[residual_id];
-  const int num_residuals = residual_block->NumResiduals();
+  const int num_residuals = residual_block.NumResiduals();
 
   vector<pair<int, int> > evaluated_jacobian_blocks;
   GetOrderedParameterBlocks(program_, residual_id, &evaluated_jacobian_blocks);

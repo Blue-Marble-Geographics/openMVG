@@ -285,7 +285,7 @@ void SparseSchurComplementSolver::InitStorage(
     f_blocks.erase(unique(f_blocks.begin(), f_blocks.end()), f_blocks.end());
     for (int i = 0; i < f_blocks.size(); ++i) {
       for (int j = i + 1; j < f_blocks.size(); ++j) {
-        block_pairs.insert(make_pair(f_blocks[i], f_blocks[j]));
+        block_pairs.emplace(f_blocks[i], f_blocks[j]);
       }
     }
   }
@@ -300,7 +300,7 @@ void SparseSchurComplementSolver::InitStorage(
       for (int j = 0; j < row.num_cells; ++j) {
         int r_block2_id = row.cells[j].block_id - num_eliminate_blocks;
         if (r_block1_id <= r_block2_id) {
-          block_pairs.insert(make_pair(r_block1_id, r_block2_id));
+          block_pairs.emplace(r_block1_id, r_block2_id);
         }
       }
     }
