@@ -252,7 +252,6 @@ struct TracksBuilder
   {
     // 1. We need to know how much single set we will have.
     //   i.e each set is made of a tuple : (imageIndex, featureIndex)
-    // JPB Fails as unordered_set
     std::set<indexedFeaturePair> allFeatures;
     // For each couple of images list the used features
     for ( const auto & iter : map_pair_wise_matches )

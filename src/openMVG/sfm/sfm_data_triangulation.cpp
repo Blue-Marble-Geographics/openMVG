@@ -452,11 +452,9 @@ const
     // inlier/outlier classification according pixel residual errors.
     const auto& intrinsics = sfm_data.GetIntrinsics();
     const auto& poses = sfm_data.GetPoses();
-    size_t cnt = obs.size();
-    for (auto obs_it = std::begin(obs); cnt--; )
+    for (const auto & obs_it : obs)
     {
-      const IndexT x = obs_it->first;
-      const View * view = sfm_data.views.at(x).get();
+      const View * view = sfm_data.views.at(obs_it.first).get();
 
       if (!view) continue;
       if (view->id_intrinsic == UndefinedIndexT) continue;
@@ -468,13 +466,12 @@ const
 
       const IntrinsicBase & cam =  *(it->second.get());
       const Pose3& pose = itPose->second;
-      const auto& coord = obs_it->second.x;
-      if (!CheiralityTest(cam.oneBearing(coord), pose, X))
+      if (!CheiralityTest(cam.oneBearing(obs_it.second.x), pose, X))
         continue;
-      const double residual_sq = cam.residual(pose(X), coord).squaredNorm();
+      const double residual_sq = cam.residual(pose(X), obs_it.second.x).squaredNorm();
       if (residual_sq < dSquared_pixel_threshold)
       {
-        inlier_set[inlier_cnt++] = x;
+        inlier_set[inlier_cnt++] = obs_it.first;
         current_error += residual_sq;
       }
       else

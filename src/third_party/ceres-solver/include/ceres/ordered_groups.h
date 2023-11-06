@@ -146,38 +146,34 @@ class OrderedGroups {
     if (group < 0) {
       return false;
     }
-#if 1 // JPB WIP
+#if 0 // JPB WIP
     const auto result = element_to_group_.try_emplace(element, group);
     // result.first has an iterator pair to where it is inserted.
     // result.second is false if insertion occurred, true if element already present.
-    if (!result.second) { // Element was already there (try_emplace did nothing but locate the element).
+    if (!result.second) { // Element was already there.
       // Is it in the same group?
-      auto stored_group = result.first->second;
-      if (stored_group == group) {
-        // current_group matches nothing to do.
+      auto current_element = result.first->second;
+      if (current_element == group) {
+        // Element is already in the right group, nothing to do.
         return true;
       }
 
-      // Replace the stored group.
-      result.first->second = group;
+      // Find the group (a set and always there)
+      auto it = group_to_elements_.find(current_element);
 
-      // Remove the element from the stored group's reference.
-      auto it = group_to_elements_.find(stored_group);
-
-      auto& stored_groups_elements_set = it->second;
+      auto& group_to_elements_set = it->second;
 
       // Find the element in the group (set) and remove it.
-      auto it2 = stored_groups_elements_set.find(element);
-      stored_groups_elements_set.erase(it2);
+      auto it2 = group_to_elements_set.find(element);
+      group_to_elements_set.erase(it2);
 
       // If it makes the set empty erase the set.
-      if (stored_groups_elements_set.empty()) {
+      if (group_to_elements_set.empty()) {
         group_to_elements_.erase(it);
       }
     }
-    else {
-      group_to_elements_[group].insert(element);
-    }
+
+    group_to_elements_[group].insert(element);
 #else
     auto it =
         element_to_group_.find(element);

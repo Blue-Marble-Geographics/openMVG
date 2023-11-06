@@ -46,7 +46,6 @@
 #include "ceres/types.h"
 #include "ceres/internal/disable_warnings.h"
 
-
 namespace ceres {
 
 class CostFunction;

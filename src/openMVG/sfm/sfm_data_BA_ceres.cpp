@@ -246,27 +246,10 @@ bool Bundle_Adjustment_Ceres::Adjust
   Hash_Map<IndexT, std::vector<double>> map_intrinsics;
   Hash_Map<IndexT, std::vector<double>> map_poses;
 
-  // JPB Must reserve ALL residuals in advance.
-  // Assumes no options.control_point_opt.bUse_control_points
-  if (options.control_point_opt.bUse_control_points)
-  {
-    throw std::runtime_error("Unsupported");
-  }
-  int num_residuals = 0;
-  for (auto& structure_landmark_it : sfm_data.structure)
-  {
-    const Observations& obs = structure_landmark_it.second.obs;
-    num_residuals += obs.size();
-  }
-
-  if (b_usable_prior)
-  {
-    num_residuals += sfm_data.GetViews().size();
-  }
-
+  const int factor = sfm_data.structure.begin()->second.obs.size();
   problem.Reserve(
     sfm_data.structure.size()+sfm_data.poses.size()+sfm_data.intrinsics.size(),
-    num_residuals
+    sfm_data.structure.size()*factor
   );
 
   // Setup Poses data & subparametrization

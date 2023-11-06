@@ -138,12 +138,12 @@ Graph<ParameterBlock*> CreateHessianGraph(const Program& program) {
   );
 
   for (const auto& residual_block : program.residual_blocks()) {
-    const int num_parameter_blocks = residual_block.NumParameterBlocks();
+    const int num_parameter_blocks = residual_block->NumParameterBlocks();
     FixedArray<std::pair<ParameterBlock*, FlatSet<ParameterBlock*>*>, 10, 0 /* No init */> usedBlocks(num_parameter_blocks);
     size_t numUsedBlocks = 0;
 
     ParameterBlock* const* parameter_blocks =
-        residual_block.parameter_blocks();
+        residual_block->parameter_blocks();
 
     for (int i = 0; i < num_parameter_blocks; ++i) {
       const auto& parameter_block = parameter_blocks[i];

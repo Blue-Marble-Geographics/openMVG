@@ -103,16 +103,16 @@ bool CoordinateDescentMinimizer::Init(
   // Compute the set of residual blocks that depend on each parameter
   // block.
   residual_blocks_.resize(parameter_block_index.size());
-  const vector<ResidualBlock>& residual_blocks = program.residual_blocks();
+  const vector<ResidualBlock*>& residual_blocks = program.residual_blocks();
   for (int i = 0; i < residual_blocks.size(); ++i) {
-    const ResidualBlock& residual_block = residual_blocks[i];
-    const int num_parameter_blocks = residual_block.NumParameterBlocks();
+    ResidualBlock* residual_block = residual_blocks[i];
+    const int num_parameter_blocks = residual_block->NumParameterBlocks();
     for (int j = 0; j < num_parameter_blocks; ++j) {
-      ParameterBlock* parameter_block = residual_block.parameter_blocks()[j];
+      ParameterBlock* parameter_block = residual_block->parameter_blocks()[j];
       const map<ParameterBlock*, int>::const_iterator it =
           parameter_block_index.find(parameter_block);
       if (it != parameter_block_index.end()) {
-        residual_blocks_[it->second].push_back(&residual_block);
+        residual_blocks_[it->second].push_back(residual_block);
       }
     }
   }
@@ -182,11 +182,8 @@ void CoordinateDescentMinimizer::Minimize(
 
       Program inner_program;
       inner_program.mutable_parameter_blocks()->push_back(parameter_block);
-#if 1 // JPB
-      throw std::runtime_error("Unsupported");
-#else
-      inner_program.mutable_residual_blocks() = residual_blocks_[j];
-#endif
+      *inner_program.mutable_residual_blocks() = residual_blocks_[j];
+
       // TODO(sameeragarwal): Better error handling. Right now we
       // assume that this is not going to lead to problems of any
       // sort. Basically we should be checking for numerical failure

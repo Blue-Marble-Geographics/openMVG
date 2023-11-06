@@ -68,7 +68,7 @@ const vector<ParameterBlock*>& Program::parameter_blocks() const {
   return parameter_blocks_;
 }
 
-const vector<ResidualBlock>& Program::residual_blocks() const {
+const vector<ResidualBlock*>& Program::residual_blocks() const {
   return residual_blocks_;
 }
 
@@ -76,8 +76,8 @@ vector<ParameterBlock*>* Program::mutable_parameter_blocks() {
   return &parameter_blocks_;
 }
 
-vector<ResidualBlock>& Program::mutable_residual_blocks() {
-  return residual_blocks_;
+vector<ResidualBlock*>* Program::mutable_residual_blocks() {
+  return &residual_blocks_;
 }
 
 bool Program::StateVectorToParameterBlocks(const double *state) {
@@ -132,8 +132,8 @@ void Program::SetParameterOffsetsAndIndex() {
   // Set positions for all parameters appearing as arguments to residuals to one
   // past the end of the parameter block array.
   for (const auto& rb : residual_blocks_) {
-    auto pb = rb.parameter_blocks();
-    for (int j = 0, cnt = rb.NumParameterBlocks(); j < cnt; ++j) {
+    auto pb = rb->parameter_blocks();
+    for (int j = 0, cnt = rb->NumParameterBlocks(); j < cnt; ++j) {
       pb[j]->set_index(-1);
     }
   }
@@ -153,11 +153,11 @@ void Program::SetParameterOffsetsAndIndex() {
 }
 
 bool Program::IsValid() const {
-  for (int i = 0, cnt = residual_blocks_.size(); i < cnt; ++i) {
-    const ResidualBlock& residual_block = residual_blocks_[i];
-    if (residual_block.index() != i) {
+  for (int i = 0; i < residual_blocks_.size(); ++i) {
+    const ResidualBlock* residual_block = residual_blocks_[i];
+    if (residual_block->index() != i) {
       LOG(WARNING) << "Residual block: " << i
-                   << " has incorrect index: " << residual_block.index();
+                   << " has incorrect index: " << residual_block->index();
       return false;
     }
   }
@@ -310,7 +310,8 @@ bool Program::RemoveFixedBlocks(vector<double*>* removed_parameter_blocks,
   // Filter out residual that have all-constant parameters, and mark
   // all the parameter blocks that appear in residuals.
   int num_active_residual_blocks = 0;
-  for ( auto& residual_block : residual_blocks_) {
+  for (const auto& prb : residual_blocks_) {
+    ResidualBlock& residual_block = *prb;
     int num_parameter_blocks = residual_block.NumParameterBlocks();
     ParameterBlock* const * ppb = residual_block.parameter_blocks();
     // Determine if the residual block is fixed, and also mark varying
@@ -325,7 +326,7 @@ bool Program::RemoveFixedBlocks(vector<double*>* removed_parameter_blocks,
     }
 
     if (!all_constant) {
-      residual_blocks_[num_active_residual_blocks++] = residual_block;
+      residual_blocks_[num_active_residual_blocks++] = &residual_block;
       continue;
     }
 
@@ -376,9 +377,11 @@ bool Program::IsParameterBlockSetIndependent(
   // blocks in the same residual block are part of
   // parameter_block_ptrs as that would violate the assumption that it
   // is an independent set in the Hessian matrix.
-  for (const auto& rb : residual_blocks_) {
-    ParameterBlock* const* parameter_blocks = rb.parameter_blocks();
-    const int num_parameter_blocks = rb.NumParameterBlocks();
+  for (vector<ResidualBlock*>::const_iterator it = residual_blocks_.begin();
+       it != residual_blocks_.end();
+       ++it) {
+    ParameterBlock* const* parameter_blocks = (*it)->parameter_blocks();
+    const int num_parameter_blocks = (*it)->NumParameterBlocks();
     int count = 0;
     for (int i = 0; i < num_parameter_blocks; ++i) {
       count += independent_set.count(
@@ -404,7 +407,7 @@ TripletSparseMatrix* Program::CreateJacobianBlockSparsityTranspose() const {
 
   const int num_residual_blocks = residual_blocks_.size();
   for (int c = 0; c < num_residual_blocks; ++c) {
-    const ResidualBlock& residual_block = residual_blocks_[c];
+    const ResidualBlock& residual_block = *residual_blocks_[c];
     const int num_parameter_blocks = residual_block.NumParameterBlocks();
     ParameterBlock* const* parameter_blocks =
         residual_block.parameter_blocks();
@@ -449,7 +452,7 @@ int Program::NumResiduals() const {
     std::end(residual_blocks_), 0,
     [](const auto& a, const auto& b)
     {
-      return a + b.NumResiduals();
+      return a + b->NumResiduals();
     }
   );
 }
@@ -479,7 +482,7 @@ int Program::MaxScratchDoublesNeededForEvaluate() const {
   for (int i = 0; i < residual_blocks_.size(); ++i) {
     max_scratch_bytes_for_evaluate =
         max(max_scratch_bytes_for_evaluate,
-            residual_blocks_[i].NumScratchDoublesForEvaluate());
+            residual_blocks_[i]->NumScratchDoublesForEvaluate());
   }
   return max_scratch_bytes_for_evaluate;
 }
@@ -488,11 +491,11 @@ int Program::MaxDerivativesPerResidualBlock() const {
   int max_derivatives = 0;
   for (int i = 0; i < residual_blocks_.size(); ++i) {
     int derivatives = 0;
-    const ResidualBlock& residual_block = residual_blocks_[i];
-    int num_parameters = residual_block.NumParameterBlocks();
+    ResidualBlock* residual_block = residual_blocks_[i];
+    int num_parameters = residual_block->NumParameterBlocks();
     for (int j = 0; j < num_parameters; ++j) {
-      derivatives += residual_block.NumResiduals() *
-                     residual_block.parameter_blocks()[j]->LocalSize();
+      derivatives += residual_block->NumResiduals() *
+                     residual_block->parameter_blocks()[j]->LocalSize();
     }
     max_derivatives = max(max_derivatives, derivatives);
   }
@@ -503,7 +506,7 @@ int Program::MaxParametersPerResidualBlock() const {
   int max_parameters = 0;
   for (int i = 0; i < residual_blocks_.size(); ++i) {
     max_parameters = max(max_parameters,
-                         residual_blocks_[i].NumParameterBlocks());
+                         residual_blocks_[i]->NumParameterBlocks());
   }
   return max_parameters;
 }
@@ -511,7 +514,7 @@ int Program::MaxParametersPerResidualBlock() const {
 int Program::MaxResidualsPerResidualBlock() const {
   int max_residuals = 0;
   for (int i = 0; i < residual_blocks_.size(); ++i) {
-    max_residuals = max(max_residuals, residual_blocks_[i].NumResiduals());
+    max_residuals = max(max_residuals, residual_blocks_[i]->NumResiduals());
   }
   return max_residuals;
 }

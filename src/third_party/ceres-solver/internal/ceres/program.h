@@ -36,7 +36,6 @@
 #include <vector>
 #include "ceres/internal/port.h"
 #include "ceres/ordered_groups.h"
-#include "ceres/residual_block.h"
 
 namespace ceres {
 namespace internal {
@@ -63,9 +62,9 @@ class Program {
 
   // The ordered parameter and residual blocks for the program.
   const std::vector<ParameterBlock*>& parameter_blocks() const;
-  const std::vector<ResidualBlock>& residual_blocks() const;
+  const std::vector<ResidualBlock*>& residual_blocks() const;
   std::vector<ParameterBlock*>* mutable_parameter_blocks();
-  std::vector<ResidualBlock>& mutable_residual_blocks();
+  std::vector<ResidualBlock*>* mutable_residual_blocks();
 
   // Serialize to/from the program and update states.
   //
@@ -189,7 +188,7 @@ class Program {
 
   // The Program does not own the ParameterBlock or ResidualBlock objects.
   std::vector<ParameterBlock*> parameter_blocks_;
-  std::vector<ResidualBlock> residual_blocks_;
+  std::vector<ResidualBlock*> residual_blocks_;
 
   friend class ProblemImpl;
 };

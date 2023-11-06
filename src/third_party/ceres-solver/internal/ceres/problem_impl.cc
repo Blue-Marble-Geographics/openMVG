@@ -238,11 +238,9 @@ ProblemImpl::~ProblemImpl() {
   const int num_residual_blocks = program_->residual_blocks_.size();
   cost_functions_to_delete_.reserve(num_residual_blocks);
   loss_functions_to_delete_.reserve(num_residual_blocks);
-#if 0 // JPB
   for (int i = 0; i < program_->residual_blocks_.size(); ++i) {
     DeleteBlock(program_->residual_blocks_[i]);
   }
-#endif
 
   // Collect the unique parameterizations and delete the parameters.
   for (int i = 0; i < program_->parameter_blocks_.size(); ++i) {
@@ -326,17 +324,13 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   }
 #endif
 
-  if (program_->residual_blocks().capacity() < program_->residual_blocks().size()+1) {
-    throw std::runtime_error("Unsupported");
-  }
-  program_->residual_blocks_.emplace_back(
-    cost_function,
-    loss_function,
-    parameter_block_ptrs,
-    program_->residual_blocks_.size()
-  );
+  ResidualBlock* new_residual_block =
+      new ResidualBlock(cost_function,
+                        loss_function,
+                        parameter_block_ptrs,
+                        program_->residual_blocks_.size());
 
-  ResidualBlock* new_residual_block = &program_->residual_blocks_.back();
+  program_->residual_blocks_.emplace_back(new_residual_block);
 
   // Add dependencies on the residual to the parameter blocks.
   if (options_.enable_fast_removal) {
@@ -416,6 +410,12 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   }
 #endif
 
+  ResidualBlock* new_residual_block =
+      new ResidualBlock(cost_function,
+                        loss_function,
+                        parameter_block_ptrs,
+                        program_->residual_blocks_.size());
+
 #if 0 // JPB 
   // Add dependencies on the residual to the parameter blocks.
   if (options_.enable_fast_removal) {
@@ -425,12 +425,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   }
 #endif
 
-  program_->residual_blocks_.emplace_back(
-    cost_function,
-    loss_function,
-    parameter_block_ptrs,
-    program_->residual_blocks_.size()
-  );
+  program_->residual_blocks_.push_back(new_residual_block);
 
 #if 0 // JPB 
   if (options_.enable_fast_removal) {
@@ -438,7 +433,7 @@ ResidualBlock* ProblemImpl::AddResidualBlock(
   }
 #endif
 
-  return &program_->residual_blocks_.back();
+  return new_residual_block;
 }
 
 // Unfortunately, macros don't help much to reduce this code, and var args don't
@@ -741,20 +736,10 @@ bool ProblemImpl::Evaluate(const Problem::EvaluateOptions& evaluate_options,
   // If the user supplied residual blocks, then use them, otherwise
   // take the residual blocks from the underlying program.
   Program program;
+  *program.mutable_residual_blocks() =
+      ((evaluate_options.residual_blocks.size() > 0)
+       ? evaluate_options.residual_blocks : program_->residual_blocks());
 
-  program.mutable_residual_blocks().clear();
-  if (!evaluate_options.residual_blocks.empty()) {
-    for (int i = 0, cnt = (int)evaluate_options.residual_blocks.size(); i < cnt; ++i) {
-      auto* item = evaluate_options.residual_blocks[i];
-      program.mutable_residual_blocks().push_back(*item);
-    }
-  }
-  else {
-    for (int i = 0, cnt = (int)program_->residual_blocks().size(); i < cnt; ++i) {
-      auto* item = &program_->residual_blocks()[i];
-      program.mutable_residual_blocks().push_back(*item);
-    }
-  }
   const vector<double*>& parameter_block_ptrs =
       evaluate_options.parameter_blocks;
 
@@ -961,14 +946,7 @@ void ProblemImpl::GetParameterBlocks(vector<double*>* parameter_blocks) const {
 void ProblemImpl::GetResidualBlocks(
     vector<ResidualBlockId>* residual_blocks) const {
   DCHECK_NOTNULL(residual_blocks);
-  throw;
-#if 0 // JPB WIP BUG
-  int i = 0;
-  auto& rbs = program().residual_blocks();
-  for (auto it = std::begin(rbs); it != std::end(rbs); ++it) {
-    (*residual_blocks)[i] = &(*it);
-  }
-#endif
+  *residual_blocks = program().residual_blocks();
 }
 
 void ProblemImpl::GetParameterBlocksForResidualBlock(
@@ -1019,7 +997,7 @@ void ProblemImpl::GetResidualBlocksForParameterBlock(
   const int num_residual_blocks = NumResidualBlocks();
   for (int i = 0; i < num_residual_blocks; ++i) {
     ResidualBlock* residual_block =
-        &program_->mutable_residual_blocks()[i];
+        (*(program_->mutable_residual_blocks()))[i];
     const int num_parameter_blocks = residual_block->NumParameterBlocks();
     for (int j = 0; j < num_parameter_blocks; ++j) {
       if (residual_block->parameter_blocks()[j] == parameter_block) {

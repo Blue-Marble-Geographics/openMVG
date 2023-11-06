@@ -267,12 +267,12 @@ bool LexicographicallyOrderResidualBlocks(
   // Create a histogram of the number of residuals for each E block. There is an
   // extra bucket at the end to catch all non-eliminated F blocks.
   vector<int> residual_blocks_per_e_block(size_of_first_elimination_group + 1);
-  vector<ResidualBlock>& residual_blocks = program->mutable_residual_blocks();
-  const int num_residual_blocks = residual_blocks.size();
+  vector<ResidualBlock*>* residual_blocks = program->mutable_residual_blocks();
+  const int num_residual_blocks = residual_blocks->size();
   vector<int> min_position_per_residual(num_residual_blocks);
   for (int i = 0; i < num_residual_blocks; ++i) {
-    const ResidualBlock& residual_block = residual_blocks[i];
-    int position = MinParameterBlock(&residual_block,
+    const ResidualBlock* residual_block = (*residual_blocks)[i];
+    int position = MinParameterBlock(residual_block,
                                      size_of_first_elimination_group);
     min_position_per_residual[i] = position;
     DCHECK_LE(position, size_of_first_elimination_group);
@@ -286,7 +286,7 @@ bool LexicographicallyOrderResidualBlocks(
   std::partial_sum(residual_blocks_per_e_block.begin(),
                    residual_blocks_per_e_block.end(),
                    offsets.begin());
-  DCHECK_EQ(offsets.back(), residual_blocks.size())
+  DCHECK_EQ(offsets.back(), residual_blocks->size())
       << "Congratulations, you found a Ceres bug! Please report this error "
       << "to the developers.";
 
@@ -303,26 +303,22 @@ bool LexicographicallyOrderResidualBlocks(
   // from each offset as a residual block is placed in the bucket. When the
   // filling is finished, the offset pointerts should have shifted down one
   // entry (this is verified below).
-  auto orig_residual_blocks(program->residual_blocks());
-  vector<int> reordered_residual_blocks_by_idx(
-      residual_blocks.size());
-  for (int i = 0; i < residual_blocks.size(); ++i) {
+  vector<ResidualBlock*> reordered_residual_blocks(
+      (*residual_blocks).size(), static_cast<ResidualBlock*>(NULL));
+  for (int i = 0; i < residual_blocks->size(); ++i) {
     int bucket = min_position_per_residual[i];
 
     // Decrement the cursor, which should now point at the next empty position.
     offsets[bucket]--;
 
-#if 0 // JPB
     // Sanity.
     DCHECK(reordered_residual_blocks[offsets[bucket]] == NULL)
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
-#endif
 
-    reordered_residual_blocks_by_idx[offsets[bucket]] = i;
+    reordered_residual_blocks[offsets[bucket]] = (*residual_blocks)[i];
   }
 
-#if 0 // JPB
   // Sanity check #1: The difference in bucket offsets should match the
   // histogram sizes.
   for (int i = 0; i < size_of_first_elimination_group; ++i) {
@@ -336,16 +332,9 @@ bool LexicographicallyOrderResidualBlocks(
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
   }
-#endif
 
   // Now that the residuals are collected by E block, swap them in place.
-#if 1 // JPB WIP
-  for (int i = 0, cnt = (int)reordered_residual_blocks_by_idx.size(); i != cnt; ++i) {
-    program->mutable_residual_blocks()[i] = orig_residual_blocks[reordered_residual_blocks_by_idx[i]];
-  }
-#else
   swap(*program->mutable_residual_blocks(), reordered_residual_blocks);
-#endif
   return true;
 }
 

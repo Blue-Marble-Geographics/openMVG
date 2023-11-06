@@ -68,7 +68,6 @@ class ParameterBlock;
 // loss functions, and parameter blocks.
 class ResidualBlock {
  public:
-  ResidualBlock() {}
   // Construct the residual block with the given cost/loss functions. Loss may
   // be null. The index is the index of the residual block in the Program's
   // residual_blocks array.

@@ -247,6 +247,7 @@ bool SequentialSfMReconstructionEngine2::InitTracksAndLandmarks()
     for ( const auto & iterT : map_tracks_ )
     {
       Observations obs;
+      const size_t track_Length = iterT.second.size();
       for (const auto & track_ids : iterT.second) // {ViewId, FeatureId}
       {
         const auto & view_id = track_ids.first;
@@ -418,12 +419,11 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
         auto feat_it = feature_id_for_resection.cbegin();
         const auto& landmarks = sfm_data_.GetLandmarks();
         const auto& feats = features_provider_->feats_per_view;
-        const auto& feats_view_id = feats.find(view_id)->second;
         for (size_t cpt = 0; cpt < track_id_for_resection.size(); ++cpt, ++track_it, ++feat_it)
         {
           resection_data.pt3D.col(cpt) = landmarks.find(*track_it)->second.X;
           resection_data.pt2D.col(cpt) = pt2D_original.col(cpt) =
-            feats_view_id[*feat_it].coords().cast<double>();
+            feats.find(view_id)->second[*feat_it].coords().cast<double>();
           // Handle image distortion if intrinsic is known (to ease the resection)
           if (intrinsic && intrinsic->have_disto())
           {

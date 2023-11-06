@@ -34,7 +34,7 @@ using namespace openMVG::sfm;
 
 
 TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingL1) {
-#if 0 // JPB
+
   const int nviews = 6;
   const int npoints = 64;
   const nViewDatasetConfigurator config;
@@ -83,11 +83,10 @@ TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingL1) {
   EXPECT_EQ( nviews, sfmEngine.Get_SfM_Data().GetPoses().size());
   EXPECT_EQ( npoints, sfmEngine.Get_SfM_Data().GetLandmarks().size());
   EXPECT_TRUE( IsTracksOneCC(sfmEngine.Get_SfM_Data()));
-#endif
 }
 
 TEST(GLOBAL_SFM, RotationAveragingL1_TranslationAveragingL1) {
-#if 0 // JPB
+
   const int nviews = 6;
   const int npoints = 64;
   const nViewDatasetConfigurator config;
@@ -136,12 +135,11 @@ TEST(GLOBAL_SFM, RotationAveragingL1_TranslationAveragingL1) {
   EXPECT_EQ( nviews, sfmEngine.Get_SfM_Data().GetPoses().size());
   EXPECT_EQ( npoints, sfmEngine.Get_SfM_Data().GetLandmarks().size());
   EXPECT_TRUE( IsTracksOneCC(sfmEngine.Get_SfM_Data()));
-#endif
 }
 
 
 TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingL2_Chordal) {
-#if 0 // JPB
+
   const int nviews = 6;
   const int npoints = 64;
   const nViewDatasetConfigurator config;
@@ -192,11 +190,10 @@ TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingL2_Chordal) {
   EXPECT_EQ( npoints, sfmEngine.Get_SfM_Data().GetLandmarks().size());
   EXPECT_TRUE( IsTracksOneCC(sfmEngine.Get_SfM_Data()));
 #endif
-#endif
 }
 
 TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingSoftL1) {
-#if 0 // JPB
+
   const int nviews = 6;
   const int npoints = 64;
   const nViewDatasetConfigurator config;
@@ -247,12 +244,10 @@ TEST(GLOBAL_SFM, RotationAveragingL2_TranslationAveragingSoftL1) {
   EXPECT_EQ( npoints, sfmEngine.Get_SfM_Data().GetLandmarks().size());
   EXPECT_TRUE( IsTracksOneCC(sfmEngine.Get_SfM_Data()));
 #endif
-#endif
 }
 
 #ifdef USE_PATENTED_LIGT
 TEST(GLOBAL_SFM, RotationAveragingL2_Translation_LIGT) {
-#if 0 // JPB
   const int nviews = 6;
   const int npoints = 64;
   const nViewDatasetConfigurator config;
@@ -301,7 +296,6 @@ TEST(GLOBAL_SFM, RotationAveragingL2_Translation_LIGT) {
   EXPECT_EQ( nviews, sfmEngine.Get_SfM_Data().GetPoses().size());
   EXPECT_EQ( npoints, sfmEngine.Get_SfM_Data().GetLandmarks().size());
   EXPECT_TRUE( IsTracksOneCC(sfmEngine.Get_SfM_Data()));
-#endif
 }
 #endif // USE_PATENTED_LIGT
 

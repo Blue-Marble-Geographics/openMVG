@@ -222,6 +222,91 @@ class AutoDiffCostFunction : public SizedCostFunction<kNumResiduals,
   internal::scoped_ptr<CostFunctor> functor_;
 };
 
+template <
+          int kNumResiduals,  // Number of residuals, or ceres::DYNAMIC.
+          int N0,       // Number of parameters in block 0.
+          int N1 = 0,   // Number of parameters in block 1.
+          int N2 = 0,   // Number of parameters in block 2.
+          int N3 = 0,   // Number of parameters in block 3.
+          int N4 = 0,   // Number of parameters in block 4.
+          int N5 = 0,   // Number of parameters in block 5.
+          int N6 = 0,   // Number of parameters in block 6.
+          int N7 = 0,   // Number of parameters in block 7.
+          int N8 = 0,   // Number of parameters in block 8.
+          int N9 = 0>   // Number of parameters in block 9.
+class AutoDiffCostFunction2 : public SizedCostFunction<kNumResiduals,
+                                                      N0, N1, N2, N3, N4,
+                                                      N5, N6, N7, N8, N9> {
+ public:
+  // Takes ownership of functor. Uses the template-provided value for the
+  // number of residuals ("kNumResiduals").
+  explicit AutoDiffCostFunction2(const double* data)
+      : data_(data) {
+    CHECK_NE(kNumResiduals, DYNAMIC)
+        << "Can't run the fixed-size constructor if the "
+        << "number of residuals is set to ceres::DYNAMIC.";
+  }
+
+#if 0
+  // Takes ownership of functor. Ignores the template-provided
+  // kNumResiduals in favor of the "num_residuals" argument provided.
+  //
+  // This allows for having autodiff cost functions which return varying
+  // numbers of residuals at runtime.
+  AutoDiffCostFunction2(CostFunctor* functor, int num_residuals)
+      : functor_(functor) {
+    CHECK_EQ(kNumResiduals, DYNAMIC)
+        << "Can't run the dynamic-size constructor if the "
+        << "number of residuals is not ceres::DYNAMIC.";
+    SizedCostFunction<kNumResiduals,
+                      N0, N1, N2, N3, N4,
+                      N5, N6, N7, N8, N9>
+        ::set_num_residuals(num_residuals);
+  }
+#endif
+
+  virtual ~AutoDiffCostFunction2() {}
+
+  // Implementation details follow; clients of the autodiff cost function should
+  // not have to examine below here.
+  //
+  // To handle varardic cost functions, some template magic is needed. It's
+  // mostly hidden inside autodiff.h.
+  virtual bool Evaluate(double const* const* parameters,
+                        double* residuals,
+                        double** jacobians) const {
+    if (!jacobians) {
+      return
+        openMVG::sfm::ResidualErrorFunctor_Pinhole_Intrinsic_Radial_K3()(parameters[0],
+          parameters[1],
+          parameters[2],
+          parameters[3],
+          parameters[4],
+          parameters[5],
+          parameters[6],
+          parameters[7],
+          parameters[8],
+          parameters[9],
+          residuals);
+    }
+    return false;
+#if 0
+    return internal::AutoDiff<CostFunctor, double,
+           N0, N1, N2, N3, N4, N5, N6, N7, N8, N9>::Differentiate(
+               *functor_,
+               parameters,
+               SizedCostFunction<kNumResiduals,
+                                 N0, N1, N2, N3, N4,
+                                 N5, N6, N7, N8, N9>::num_residuals(),
+               residuals,
+               jacobians);
+#endif
+  }
+
+ private:
+  const double* data_;
+};
+
 }  // namespace ceres
 
 #endif  // CERES_PUBLIC_AUTODIFF_COST_FUNCTION_H_
