@@ -35,18 +35,39 @@ struct Observation
   void load( Archive & ar);
 };
 
+struct ObservationKeyValue_t
+{
+  ObservationKeyValue_t() {}
+
+  ObservationKeyValue_t(IndexT key_, const Observation& value_) :
+    first(key_),
+    second(value_)
+  {}
+
+  IndexT first;
+  Observation second;
+
+  // Serialization
+  template <class Archive>
+  void save(Archive& ar) const;
+
+  // Serialization
+  template <class Archive>
+  void load(Archive& ar);
+};
+
 /// Observations are indexed by their View_id
 struct Observations
 {
-  using iterator = std::pair<IndexT, Observation>*;
-  using const_iterator = const std::pair<IndexT, Observation>*;
+  using iterator = std::vector<ObservationKeyValue_t>::iterator;
+  using const_iterator = std::vector<ObservationKeyValue_t>::const_iterator;
 
-  const_iterator cbegin() const noexcept { return obs.data(); }
-  const_iterator cend() const noexcept { return obs.data() + obs.size(); }
+  const_iterator cbegin() const noexcept { return obs.begin(); }
+  const_iterator cend() const noexcept { return obs.end(); }
   const_iterator begin() const noexcept { return cbegin(); }
   const_iterator end() const noexcept { return cend(); }
-  iterator begin() noexcept { return obs.data(); }
-  iterator end() noexcept { return obs.data() + obs.size(); }
+  iterator begin() noexcept { return obs.begin(); }
+  iterator end() noexcept { return obs.end(); }
 
   void clear() noexcept { obs.clear(); }
   bool empty() const noexcept { return obs.empty(); }
@@ -99,12 +120,12 @@ struct Observations
     return end();
   }
 
-  std::pair<iterator, bool> insert(const std::pair<IndexT, Observation>& value)
+  std::pair<iterator, bool> insert(const ObservationKeyValue_t& value)
   {
-    for (auto& ob : obs) {
-      if (value.first == ob.first) {
-        ob.second = value.second;
-        return { &ob, false };
+    for (auto it = begin(); it != end(); ++it) {
+      if (value.first == it->first) {
+        it->second = value.second;
+        return { it, false };
       }
     }
 
@@ -112,15 +133,15 @@ struct Observations
 
     sorted = false;
 
-    return { &obs.back(), true };
+    return { std::prev(obs.end()), true};
   }
 
-  std::pair<iterator, bool> insert(const_iterator hint, const std::pair<IndexT, Observation>& value)
+  std::pair<iterator, bool> insert(const_iterator hint, const ObservationKeyValue_t& value)
   {
-    for (auto& ob : obs) {
-      if (value.first == ob.first) {
-        ob.second = value.second;
-        return { &ob, false };
+    for (auto it = begin(); it != end(); ++it) {
+      if (value.first == it->first) {
+        it->second = value.second;
+        return { it, false };
       }
     }
 
@@ -128,7 +149,7 @@ struct Observations
 
     sorted = false;
 
-    return { &obs.back(), true };
+    return { std::prev(obs.end()), true };
   }
 
   Observation& operator[](IndexT i)
@@ -165,7 +186,7 @@ struct Observations
   void load( Archive & ar);
 
   bool sorted = false;
-  std::vector<std::pair<IndexT /* view-id */, Observation>> obs;
+  std::vector<ObservationKeyValue_t> obs;
 };
 
 /// Define a landmark (a 3D point, with its 2d observations)
