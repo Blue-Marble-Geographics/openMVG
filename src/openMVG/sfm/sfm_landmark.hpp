@@ -105,6 +105,7 @@ struct Observations
     return end();
   }
 
+#if 0
   auto erase(iterator ob) noexcept {
     int cnt = 0;
     for (auto it = begin(); it != end(); ++it, ++cnt)
@@ -119,6 +120,7 @@ struct Observations
 
     return end();
   }
+#endif
 
   std::pair<iterator, bool> insert(const ObservationKeyValue_t& value)
   {

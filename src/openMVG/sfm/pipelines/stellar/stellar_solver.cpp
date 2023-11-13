@@ -597,7 +597,7 @@ bool Stellar_Solver::Optimize
 
     // Remove outliers (max_angle, residual error)
     const size_t pointcount_initial = stellar_pod_reconstruction.structure.size();
-    RemoveOutliers_PixelResidualError(stellar_pod_reconstruction, 4.0);
+    RemoveOutliers_PixelResidualErrorWithoutCount(stellar_pod_reconstruction, 4.0);
     RemoveOutliers_AngleError(stellar_pod_reconstruction, 2.0);
 
     // Remove poses that does not cover a sufficient number of observations (some observations are removed too)

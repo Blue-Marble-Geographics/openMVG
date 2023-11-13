@@ -116,7 +116,7 @@ bool SequentialSfMReconstructionEngine2::Process() {
       const bool bTriangulation = Triangulation();
       Save(sfm_data_, stlplus::create_filespec(sOut_directory_, "Initialization", ".ply"), ESfM_Data(ALL));
       RemoveOutliers_AngleError(sfm_data_, Square(2.0));
-      RemoveOutliers_PixelResidualError(sfm_data_, Square(4.0));
+      RemoveOutliers_PixelResidualErrorWithoutCount(sfm_data_, Square(4.0));
 
       //-- Display some statistics
       OPENMVG_LOG_INFO
@@ -164,7 +164,7 @@ bool SequentialSfMReconstructionEngine2::Process() {
       BundleAdjustment();
       // Remove unstable triangulations and camera poses
       RemoveOutliers_AngleError(sfm_data_, 2.0);
-      RemoveOutliers_PixelResidualError(sfm_data_, 4.0);
+      RemoveOutliers_PixelResidualErrorWithoutCount(sfm_data_, 4.0);
       eraseUnstablePosesAndObservations(sfm_data_);
 
       std::ostringstream os;
@@ -332,6 +332,13 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
     std::vector<IndexT> feature_id_for_resection;
     Image_Localizer_Match_Data resection_data;
     Mat2X pt2D_original;
+    std::vector<IndexT> track_id_for_resection;
+
+    ParallelData_t()
+    {
+      resection_data.pt2D.resize(2, Eigen::NoChange);
+      resection_data.pt3D.resize(3, Eigen::NoChange);
+    }
   };
 
   std::vector<ParallelData_t> parallelDataPool(omp_get_max_threads());
@@ -349,8 +356,7 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
 
 #ifdef OPENMVG_USE_OPENMP
       size_t current_thread = omp_get_thread_num();
-      auto& view_tracks = parallelDataPool[current_thread].view_tracks;
-      view_tracks.clear();
+      auto& view_tracks = parallelDataPool[current_thread].view_tracks; // Will be cleared
 #else
       openMVG::tracks::STLMAPTracks view_tracks;
 #endif
@@ -360,14 +366,20 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
       tracks::TracksUtilsMap::GetTracksIdVector(view_tracks, &view_tracks_ids);
 
       // Get the ids of the already reconstructed tracks
-      const std::set<IndexT> track_id_for_resection = [&]
-      {
-        std::set<IndexT> track_id;
-        std::set_intersection(view_tracks_ids.cbegin(), view_tracks_ids.cend(),
-          reconstructed_trackId.cbegin(), reconstructed_trackId.cend(),
-          std::inserter(track_id, track_id.begin()));
-        return track_id;
-      }();
+#ifdef OPENMVG_USE_OPENMP
+      auto& track_id_for_resection = parallelDataPool[current_thread].track_id_for_resection;
+      track_id_for_resection.clear();
+      track_id_for_resection.reserve(std::min(view_tracks_ids.size(), reconstructed_trackId.size()));
+#else
+      openMVG::tracks::STLMAPTracks view_tracks;
+#endif
+      std::set_intersection(
+        view_tracks_ids.cbegin(),
+        view_tracks_ids.cend(),
+        reconstructed_trackId.cbegin(),
+        reconstructed_trackId.cend(),
+        std::back_inserter(track_id_for_resection)
+      );
 
       const double track_ratio = track_id_for_resection.size() / static_cast<float>(view_tracks_ids.size() + 1);
       OPENMVG_LOG_INFO
@@ -397,8 +409,10 @@ bool SequentialSfMReconstructionEngine2::AddingMissingView
 #else
         Image_Localizer_Match_Data resection_data;
 #endif
-        resection_data.pt2D.resize( 2, track_id_for_resection.size() );
-        resection_data.pt3D.resize( 3, track_id_for_resection.size() );
+        // JPB WIP OPT This is always allocating memory.  Change so it only
+        // allocates larger.
+        resection_data.pt2D.resize( Eigen::NoChange, track_id_for_resection.size() );
+        resection_data.pt3D.resize( Eigen::NoChange, track_id_for_resection.size() );
 
         // Look if the intrinsic data is known or not
         const View * view = sfm_data_.GetViews().at(view_id).get();

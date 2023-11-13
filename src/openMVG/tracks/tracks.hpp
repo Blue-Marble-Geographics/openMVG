@@ -203,16 +203,14 @@ struct submapTrack
 
   const_iterator find( IndexT ob ) const noexcept
   {
-    int cnt = 0;
-    for ( auto it = begin(); it != end(); ++it, ++cnt )
-    {
-      if ( ob == it->first )
+    return std::find_if(
+      begin(),
+      end(),
+      [ob](const auto& it)
       {
-        return it;
+        return it.first == ob;
       }
-    }
-
-    return end();
+    );
   }
 
   uint32_t& operator[]( IndexT i )
@@ -559,8 +557,8 @@ public:
    */
   bool GetTracksInImages
   (
-    const std::set<uint32_t> & image_ids,
-    STLMAPTracks & tracks
+    const std::set<uint32_t>& image_ids,
+    STLMAPTracks& tracks
   )
   {
     tracks.clear();
@@ -587,7 +585,7 @@ public:
         if (track_ids_per_view_.count(*image_index_it))
         {
           const auto ids_per_view_it = track_ids_per_view_.find(*image_index_it);
-          const auto & track_ids = ids_per_view_it->second;
+          const auto& track_ids = ids_per_view_it->second;
 
           if (!merged)
           {
@@ -620,6 +618,25 @@ public:
       }
     }
 
+
+    // Collect the selected {img id, feat id} data for the shared track ids
+    if (merged || ( !merged && common_track_ids ))
+    {
+      for (const auto track_ids_it : merged ? new_common_track_ids : *common_track_ids)
+      {
+        const auto track_it = tracks_.find(track_ids_it);
+        const auto& track = track_it->second;
+        // Find the corresponding output track and update it
+        submapTrack& trackFeatsOut = tracks[track_it->first];
+        for (const auto img_index: image_ids)
+        {
+          const auto track_view_info = track.find(img_index);
+          trackFeatsOut[img_index] = track_view_info->second;
+        }
+      }
+    }
+    return !tracks.empty();
+  }
 #else
     // Collect the shared tracks ids by the views
     std::set<uint32_t> common_track_ids;
@@ -658,13 +675,12 @@ public:
         common_track_ids.clear();
       }
     }
-#endif
 
     // Collect the selected {img id, feat id} data for the shared track ids
-    for (const auto track_ids_it : merged ? new_common_track_ids : *common_track_ids)
+    for (const auto track_ids_it : common_track_ids)
     {
       const auto track_it = tracks_.find(track_ids_it);
-      const auto & track = track_it->second;
+      const auto& track = track_it->second;
       // Find the corresponding output track and update it
       submapTrack& trackFeatsOut = tracks[track_it->first];
       for (const auto img_index: image_ids)
@@ -675,6 +691,7 @@ public:
     }
     return !tracks.empty();
   }
+#endif
 };
 
 struct TracksUtilsMap
@@ -732,10 +749,11 @@ struct TracksUtilsMap
   }
 
   /// Get feature index PerView and TrackId
+  template<class T>
   static bool GetFeatIndexPerViewAndTrackId
   (
     const STLMAPTracks & tracks,
-    const std::set<uint32_t> & track_ids,
+    T & track_ids,
     uint32_t nImageIndex,
     std::vector<uint32_t> * feat_ids
   )

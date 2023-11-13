@@ -142,38 +142,32 @@ class OrderedGroups {
   // numbers.
   //
   // Return value indicates if adding the element was a success.
+  // JPB Note group is always 0 or 1.
   bool AddElementToGroup(const T element, const int group) {
     if (group < 0) {
       return false;
     }
-#if 0 // JPB WIP
+#if 1 // JPB WIP
     const auto result = element_to_group_.try_emplace(element, group);
     // result.first has an iterator pair to where it is inserted.
     // result.second is false if insertion occurred, true if element already present.
-    if (!result.second) { // Element was already there.
+    if (!result.second) { // Element was already there (try_emplace did nothing but locate the element).
       // Is it in the same group?
-      auto current_element = result.first->second;
-      if (current_element == group) {
-        // Element is already in the right group, nothing to do.
+      auto stored_group = result.first->second;
+      if (stored_group == group) {
+        // current_group matches nothing to do.
         return true;
       }
 
-      // Find the group (a set and always there)
-      auto it = group_to_elements_.find(current_element);
+      // Replace the stored group.
+      result.first->second = group;
 
-      auto& group_to_elements_set = it->second;
-
-      // Find the element in the group (set) and remove it.
-      auto it2 = group_to_elements_set.find(element);
-      group_to_elements_set.erase(it2);
-
-      // If it makes the set empty erase the set.
-      if (group_to_elements_set.empty()) {
-        group_to_elements_.erase(it);
+      // Remove the element from the stored group's reference.
+      group_to_elements_[stored_group].erase(element);
       }
+    else {
+    	group_to_elements_[group].insert(element);
     }
-
-    group_to_elements_[group].insert(element);
 #else
     auto it =
         element_to_group_.find(element);
@@ -196,7 +190,8 @@ class OrderedGroups {
   }
 
   void Clear() {
-    group_to_elements_.clear();
+    group_to_elements_[0].clear();
+    group_to_elements_[1].clear();
     element_to_group_.clear();
   }
 
@@ -209,12 +204,6 @@ class OrderedGroups {
     }
 
     group_to_elements_[current_group].erase(element);
-
-    if (group_to_elements_[current_group].size() == 0) {
-      // If the group is empty, then get rid of it.
-      group_to_elements_.erase(current_group);
-    }
-
     element_to_group_.erase(element);
     return true;
   }
@@ -235,6 +224,9 @@ class OrderedGroups {
 
   // Reverse the order of the groups in place.
   void Reverse() {
+#if 1 // JPB WIP BUG
+    throw std::runtime_error("Unsupported");
+#else
     if (NumGroups() == 0) {
       return;
     }
@@ -256,6 +248,7 @@ class OrderedGroups {
     }
 
     group_to_elements_.swap(new_group_to_elements);
+#endif
   }
 
   // Return the group id for the element. If the element is not a
@@ -275,21 +268,13 @@ class OrderedGroups {
     return (it != element_to_group_.end());
   }
 
-  // This function always succeeds, i.e., implicitly there exists a
-  // group for every integer.
-  int GroupSize(const int group) const {
-    auto it =
-        group_to_elements_.find(group);
-    return (it ==  group_to_elements_.end()) ? 0 : it->second.size();
-  }
-
   int NumElements() const {
     return element_to_group_.size();
   }
 
   // Number of groups with one or more elements.
   int NumGroups() const {
-    return group_to_elements_.size();
+    return (!group_to_elements_[0].empty()) + (!group_to_elements_[1].empty());
   }
 
   // The first group with one or more elements. Calling this when
@@ -297,7 +282,7 @@ class OrderedGroups {
   // crash.
   int MinNonZeroGroup() const {
     CHECK_NE(NumGroups(), 0);
-    return group_to_elements_.begin()->first;
+    return (!group_to_elements_[0].empty()) ? group_to_elements_[0].size() : group_to_elements_[1].size();
   }
 
   const auto& group_to_elements() const {
@@ -309,7 +294,7 @@ class OrderedGroups {
   }
 
  private:
-  std::map<int, std::set<T, std::less<T>, Mallocator<T>>, std::less<int>, Mallocator<T> > group_to_elements_;
+  std::array<std::set<T, std::less<T>, Mallocator<T>>, 2> group_to_elements_;
   std::map<T, int, std::less<T>, Mallocator<int>> element_to_group_;
 };
 

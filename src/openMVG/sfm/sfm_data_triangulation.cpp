@@ -404,30 +404,34 @@ const
   // Random number generation
   std::mt19937 random_generator(std::mt19937::default_seed);
 
+  const auto& intrinsics = sfm_data.GetIntrinsics();
+
+#if 0 // JPB WIP Revisit
   const size_t num_obs = obs.size();
   std::vector<const View*> obsViews(num_obs);
   std::vector<const IntrinsicBase*> obsCams(num_obs);
   std::vector<const std::pair<const IndexT, Pose3>*> obsPoses(num_obs);
 
-  const auto& intrinsics = sfm_data.GetIntrinsics();
   const auto& allPoses = sfm_data.poses;
   size_t idx = 0;
   for (const auto & obs_it : obs)
   {
-    const View* view = sfm_data.views.at(obs_it.first).get();
+    const View* __restrict view = sfm_data.views.at(obs_it.first).get();
     obsViews[idx] = view;
 
     if (!view) continue;
-    if (view->id_intrinsic == UndefinedIndexT) continue;
-    if (view->id_pose == UndefinedIndexT) continue;
+    const auto view_intrinsic = view->id_intrinsic;
+    if (view_intrinsic == UndefinedIndexT) continue;
 
-    obsCams[idx] = intrinsics.at(view->id_intrinsic).get();
-    auto it = intrinsics.find(view->id_intrinsic);
-    if (it == intrinsics.end()) continue;
-    auto itPose = allPoses.find(view->id_pose);
-    if (itPose == allPoses.end()) continue;
+    const auto view_pose = view->id_pose;
+    if (view_pose == UndefinedIndexT) continue;
+
+    auto it = intrinsics.find(view_intrinsic);
+    obsCams[idx] = it->second.get();
+    auto itPose = allPoses.find(view_pose);
     obsPoses[idx] = &(*itPose);
   }
+#endif
 
   // - Ransac loop
   Observations minimal_sample;

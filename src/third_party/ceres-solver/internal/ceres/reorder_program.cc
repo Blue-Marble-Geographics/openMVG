@@ -234,10 +234,8 @@ bool ApplyOrdering(const ProblemImpl::ParameterMap& parameter_map,
   parameter_blocks->clear();
 
   const auto& groups = ordering.group_to_elements();
-  for (auto group_it = groups.begin();
-       group_it != groups.end();
-       ++group_it) {
-    const auto& group = group_it->second;
+  for (size_t i = 0, cnt = ordering.group_to_elements().size(); i < cnt; ++i) {
+    const auto& group = groups[i];
     for (auto parameter_block_ptr_it = group.begin();
          parameter_block_ptr_it != group.end();
          ++parameter_block_ptr_it) {
@@ -247,7 +245,7 @@ bool ApplyOrdering(const ProblemImpl::ParameterMap& parameter_map,
         *error = StringPrintf("User specified ordering contains a pointer "
                               "to a double that is not a parameter block in "
                               "the problem. The invalid double is in group: %d",
-                              group_it->first);
+                              i);
         return false;
       }
       parameter_blocks->push_back(parameter_block_it->second);
@@ -501,11 +499,8 @@ bool ReorderProgramForSchurTypeLinearSolver(
     // group.
 
     // Verify that the first elimination group is an independent set.
-    const auto& first_elimination_group =
-        parameter_block_ordering
-        ->group_to_elements()
-        .begin()
-        ->second;
+    const auto& first_elimination_group = (!parameter_block_ordering->group_to_elements()[0].empty()) ?
+      parameter_block_ordering->group_to_elements()[0] : parameter_block_ordering->group_to_elements()[1];
     if (!program->IsParameterBlockSetIndependent(first_elimination_group)) {
       *error =
           StringPrintf("The first elimination group in the parameter block "
@@ -524,8 +519,11 @@ bool ReorderProgramForSchurTypeLinearSolver(
 
   program->SetParameterOffsetsAndIndex();
 
+  const auto& first_elimination_group = ( !parameter_block_ordering->group_to_elements()[0].empty() ) ?
+    parameter_block_ordering->group_to_elements()[0] : parameter_block_ordering->group_to_elements()[1];
+
   const int size_of_first_elimination_group =
-      parameter_block_ordering->group_to_elements().begin()->second.size();
+    first_elimination_group.size();
 
   if (linear_solver_type == SPARSE_SCHUR) {
     if (sparse_linear_algebra_library_type == SUITE_SPARSE) {

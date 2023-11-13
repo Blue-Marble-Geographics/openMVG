@@ -165,9 +165,7 @@ void DenseSchurComplementSolver::InitStorage(
 
   blocks_.clear();
   blocks_.reserve(num_col_blocks - num_eliminate_blocks);
-  for (int i = num_eliminate_blocks, j = 0;
-       i < num_col_blocks;
-       ++i, ++j) {
+  for (int i = num_eliminate_blocks; i < num_col_blocks; ++i) {
     blocks_.push_back(bs->col_sizes[i]);
   }
 
@@ -294,7 +292,7 @@ void SparseSchurComplementSolver::InitStorage(
   // into the schur complement via an outer product.
   for (; r < num_row_blocks; ++r) {
     const CompressedRow& row = bs->rows[r];
-    CHECK_GE(row.cells[0].block_id, num_eliminate_blocks);
+    DCHECK_GE(row.cells[0].block_id, num_eliminate_blocks);
     for (int i = 0; i < row.num_cells; ++i) {
       int r_block1_id = row.cells[i].block_id - num_eliminate_blocks;
       for (int j = 0; j < row.num_cells; ++j) {

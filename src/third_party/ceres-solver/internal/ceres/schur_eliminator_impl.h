@@ -402,10 +402,10 @@ BackSubstitute(const BlockSparseMatrix* A,
 
     SmallBiasHelper sbhInner;
 
-    for (size_t j = 0, cnt2 = chunk.size; j < cnt2; ++j) {
+    for (int j = 0, cnt2 = chunk.size; j < cnt2; ++j) {
       const CompressedRow& row = bs_rows[chunk_start + j];
       const auto& row_cells = row.cells;
-      const size_t num_cells = row.num_cells;
+      const int num_cells = row.num_cells;
       const auto row_block_size = row.block.size;
       const Cell& e_cell = row_cells[0];
       const auto* e_cell_values = values + e_cell.position;
@@ -420,7 +420,7 @@ BackSubstitute(const BlockSparseMatrix* A,
       sbhInner.num_row_a_ = row_block_size;
       sbhInner.C_ = sj.get();
 
-      for (size_t c = 1, cnt3 = num_cells; c < cnt3; ++c) {
+      for (int c = 1, cnt3 = num_cells; c < cnt3; ++c) {
         const auto& row_cell_c = row_cells[c];
         const int f_block_id = row_cell_c.block_id;
         const int f_block_size = bs_col_sizes[f_block_id];
@@ -482,7 +482,7 @@ UpdateRhs(const Chunk& chunk,
   SmallBiasHelper sbhInner;
 
   int b_pos = bs_rows[row_block_counter].block.position;
-  for (size_t j = 0, cnt = chunk.size; j < cnt; ++j) {
+  for (int j = 0, cnt = chunk.size; j < cnt; ++j) {
     const CompressedRow& row = bs_rows[row_block_counter + j];
     const auto row_block_size = row.block.size;
     const Cell& e_cell = row.cells[ 0 ];
@@ -500,7 +500,7 @@ UpdateRhs(const Chunk& chunk,
 
     MatrixVectorMultiply2<kRowBlockSize, kEBlockSize, -1>(sbhOuter);
 
-    for (size_t c = 1, cnt2 = row.num_cells; c < cnt2; ++c) {
+    for (int c = 1, cnt2 = row.num_cells; c < cnt2; ++c) {
       const auto& row_cell_c = row.cells[c];
       const int block_id = row_cell_c.block_id;
       sbhInner.num_col_a_ = bs_cols_sizes[block_id];

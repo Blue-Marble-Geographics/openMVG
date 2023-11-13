@@ -169,12 +169,8 @@ void OrderingToGroupSizes(const ParameterBlockOrdering* ordering,
     return;
   }
 
-  const auto& group_to_elements =
-      ordering->group_to_elements();
-  for (auto it = group_to_elements.begin();
-       it != group_to_elements.end();
-       ++it) {
-    group_sizes->push_back(it->second.size());
+  for (const auto& i : ordering->group_to_elements()) {
+    group_sizes->push_back(i.size());
   }
 }
 

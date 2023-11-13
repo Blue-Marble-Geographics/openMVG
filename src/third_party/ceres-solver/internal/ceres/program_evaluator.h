@@ -237,11 +237,12 @@ class ProgramEvaluator : public Evaluator {
 
       // Compute and store the gradient, if it was requested.
       if (gradient != NULL) {
+        auto* scratch_gradient = scratch->gradient.get();
         int num_residuals = residual_block->NumResiduals();
         int num_parameter_blocks = residual_block->NumParameterBlocks();
+        const auto& pbs = residual_block->parameter_blocks();
         for (int j = 0; j < num_parameter_blocks; ++j) {
-          const ParameterBlock* parameter_block =
-              residual_block->parameter_blocks()[j];
+          const ParameterBlock* __restrict parameter_block = pbs[j];
           if (parameter_block->IsConstant()) {
             continue;
           }
@@ -251,7 +252,7 @@ class ProgramEvaluator : public Evaluator {
               num_residuals,
               parameter_block->LocalSize(),
               block_residuals,
-              scratch->gradient.get() + parameter_block->delta_offset());
+              scratch_gradient + parameter_block->delta_offset());
         }
       }
     }
