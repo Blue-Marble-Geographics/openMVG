@@ -250,8 +250,10 @@ struct TracksBuilder
   {
     // 1. We need to know how much single set we will have.
     //   i.e each set is made of a tuple : (imageIndex, featureIndex)
+    // JPB Fails as unordered_set
     std::set<indexedFeaturePair> allFeatures;
     // For each couple of images list the used features
+
     for ( const auto & iter : map_pair_wise_matches )
     {
       const auto & I = iter.first.first;
@@ -261,8 +263,8 @@ struct TracksBuilder
       // Retrieve all shared features and add them to a set
       for ( const auto & cur_filtered_match : vec_FilteredMatches )
       {
-        allFeatures.emplace(I,cur_filtered_match.i_);
-        allFeatures.emplace(J,cur_filtered_match.j_);
+        allFeatures.emplace(I, cur_filtered_match.i_);
+        allFeatures.emplace(J, cur_filtered_match.j_);
       }
     }
 

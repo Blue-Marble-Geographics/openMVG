@@ -53,8 +53,8 @@
 //https://stackoverflow.com/questions/1271367/radix-sort-implemented-in-c/40457313#40457313
 static inline void RadixSort32( uint32_t* a, size_t count )
 {
-  size_t mIndex[ 4 ][ 256 ] = { 0 };            // count / index matrix
-  uint32_t* b = new uint32_t[ count ];    // allocate temp array
+  size_t mIndex[ 4 ][ 256 ] = { 0 };      // count / index matrix
+  uint32_t* b = a + count;                // allocate temp array (stored just after original)
   size_t i, j, m, n;
   uint32_t u;
   for ( i = 0; i < count; i++ ) {         // generate histograms
@@ -73,20 +73,19 @@ static inline void RadixSort32( uint32_t* a, size_t count )
     }
   }
   for ( j = 0; j < 4; j++ ) {             // radix sort
-    for ( i = 0; i < count; i++ ) {     //  sort by current lsb
+    for ( i = 0; i < count; i++ ) {       //  sort by current lsb
       u = a[ i ];
       m = (size_t)( u >> ( j << 3 ) ) & 0xff;
       b[ mIndex[ j ][ m ]++ ] = u;
     }
-    std::swap( a, b );                //  swap ptrs
+    std::swap( a, b );                    //  swap ptrs
   }
-  delete[] b;
 }
 
 static inline void RadixSort64( uint64_t* a, size_t count )
 {
-  size_t mIndex[ 8 ][ 256 ] = { 0 };            // count / index matrix
-  uint64_t* b = new uint64_t[ count ];    // allocate temp array
+  size_t mIndex[ 8 ][ 256 ] = { 0 };      // count / index matrix
+  uint64_t* b = a + count;                // allocate temp array (stored just after original)
   size_t i, j, m, n;
   uint64_t u;
   for ( i = 0; i < count; i++ ) {         // generate histograms
@@ -105,14 +104,13 @@ static inline void RadixSort64( uint64_t* a, size_t count )
     }
   }
   for ( j = 0; j < 8; j++ ) {             // radix sort
-    for ( i = 0; i < count; i++ ) {     //  sort by current lsb
+    for ( i = 0; i < count; i++ ) {       //  sort by current lsb
       u = a[ i ];
       m = (size_t)( u >> ( j << 3 ) ) & 0xff;
       b[ mIndex[ j ][ m ]++ ] = u;
     }
     std::swap( a, b );                //  swap ptrs
   }
-  delete[] b;
 }
 namespace openMVG {
 namespace robust{
@@ -331,7 +329,8 @@ NFA_Interface<Kernel>::ComputeNFA_and_inliers
       if (numSamples <= 65536)
       {
         scratchMemory32.clear();
-        scratchMemory32.reserve(numSamples);
+        // Uses second half of scratchMemory2 as a separate array.
+        scratchMemory32.reserve(numSamples*2);
         for (size_t i = 0; i < numSamples; ++i)
         {
           const uint32_t residualAndIndex = (((uint32_t)_cvt_dtoui_fast(m_residuals[i] * USHRT_MAX)) << 16) + i;
@@ -352,7 +351,7 @@ NFA_Interface<Kernel>::ComputeNFA_and_inliers
       else
       {
         scratchMemory64.clear();
-        scratchMemory64.reserve(numSamples);
+        scratchMemory64.reserve(numSamples*2);
         for (size_t i = 0; i < numSamples; ++i)
         {
           const uint64_t residualAndIndex = (((uint64_t)_cvt_dtoui_fast(m_residuals[i] * UINT_MAX)) << 32) + i;

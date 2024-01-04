@@ -117,13 +117,15 @@ bool Program::SetParameterBlockStatePtrsToUserStatePtrs() {
 bool Program::Plus(const double* state,
                    const double* delta,
                    double* state_plus_delta) const {
-  for (int i = 0; i < parameter_blocks_.size(); ++i) {
-    if (!parameter_blocks_[i]->Plus(state, delta, state_plus_delta)) {
+  for (auto& ppb : parameter_blocks_) {
+    auto& pb = *ppb;
+    if (!pb.Plus(state, delta, state_plus_delta)) {
       return false;
     }
-    state += parameter_blocks_[i]->Size();
-    delta += parameter_blocks_[i]->LocalSize();
-    state_plus_delta += parameter_blocks_[i]->Size();
+    const auto cnt = pb.Size();
+    state += cnt;
+    delta += pb.LocalSize();
+    state_plus_delta += cnt;
   }
   return true;
 }
@@ -297,7 +299,7 @@ bool Program::RemoveFixedBlocks(vector<double*>* removed_parameter_blocks,
   DCHECK_NOTNULL(fixed_cost);
   DCHECK_NOTNULL(error);
 
-  FixedArray<double, 10> residual_block_evaluate_scratch(MaxScratchDoublesNeededForEvaluate());
+  FixedArray<double, 10, 0 /* no init */> residual_block_evaluate_scratch(MaxScratchDoublesNeededForEvaluate());
   *fixed_cost = 0.0;
 
   // Mark all the parameters as unused. Abuse the index member of the
@@ -458,11 +460,14 @@ int Program::NumResiduals() const {
 }
 
 int Program::NumParameters() const {
-  int num_parameters = 0;
-  for (int i = 0; i < parameter_blocks_.size(); ++i) {
-    num_parameters += parameter_blocks_[i]->Size();
-  }
-  return num_parameters;
+  return std::accumulate(
+    std::begin(parameter_blocks_),
+    std::end(parameter_blocks_), 0,
+    [](const auto& a, const auto& b)
+    {
+      return a + b->Size();
+    }
+  );
 }
 
 int Program::NumEffectiveParameters() const {
@@ -479,23 +484,24 @@ int Program::NumEffectiveParameters() const {
 int Program::MaxScratchDoublesNeededForEvaluate() const {
   // Compute the scratch space needed for evaluate.
   int max_scratch_bytes_for_evaluate = 0;
-  for (int i = 0; i < residual_blocks_.size(); ++i) {
+  for (const auto& prb :  residual_blocks_) {
     max_scratch_bytes_for_evaluate =
         max(max_scratch_bytes_for_evaluate,
-            residual_blocks_[i]->NumScratchDoublesForEvaluate());
+            prb->NumScratchDoublesForEvaluate());
   }
   return max_scratch_bytes_for_evaluate;
 }
 
 int Program::MaxDerivativesPerResidualBlock() const {
   int max_derivatives = 0;
-  for (int i = 0; i < residual_blocks_.size(); ++i) {
+  for (const auto& prb :  residual_blocks_) {
     int derivatives = 0;
-    ResidualBlock* residual_block = residual_blocks_[i];
-    int num_parameters = residual_block->NumParameterBlocks();
+    ResidualBlock& residual_block = *prb;
+    int num_parameters = residual_block.NumParameterBlocks();
+    auto pb = residual_block.parameter_blocks();
     for (int j = 0; j < num_parameters; ++j) {
-      derivatives += residual_block->NumResiduals() *
-                     residual_block->parameter_blocks()[j]->LocalSize();
+      derivatives += residual_block.NumResiduals() *
+                     pb[j]->LocalSize();
     }
     max_derivatives = max(max_derivatives, derivatives);
   }
@@ -504,17 +510,17 @@ int Program::MaxDerivativesPerResidualBlock() const {
 
 int Program::MaxParametersPerResidualBlock() const {
   int max_parameters = 0;
-  for (int i = 0; i < residual_blocks_.size(); ++i) {
+  for (const auto& prb : residual_blocks_) {
     max_parameters = max(max_parameters,
-                         residual_blocks_[i]->NumParameterBlocks());
+                         prb->NumParameterBlocks());
   }
   return max_parameters;
 }
 
 int Program::MaxResidualsPerResidualBlock() const {
   int max_residuals = 0;
-  for (int i = 0; i < residual_blocks_.size(); ++i) {
-    max_residuals = max(max_residuals, residual_blocks_[i]->NumResiduals());
+  for (const auto& prb : residual_blocks_) {
+    max_residuals = max(max_residuals, prb->NumResiduals());
   }
   return max_residuals;
 }

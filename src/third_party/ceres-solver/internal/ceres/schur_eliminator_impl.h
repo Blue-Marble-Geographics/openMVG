@@ -781,11 +781,12 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
       if (cell_info) {
         sbhInner.B_ = values + row_cell_j.position;
         sbhInner.num_col_b_ = bs_col_sizes[row_cell_j.block_id];
+        sbhInner.C_ = cell_info->values;
 
         auto& lock = cell_info->m;
         if (num_threads_ > 1) {
           lock.Lock();
-}
+        }
 
         MatrixTransposeMatrixMultiply2
             <Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic, 1>(sbhInner);

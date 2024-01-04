@@ -79,9 +79,9 @@ bool track_triangulation
       if (itPose == allPoses.end()) continue;
 
       const auto tmp = cam->get_ud_pixel(observation->second.x);
-      bearing[ i ] = cam->oneBearing(tmp);
-      poses[ i ] = itPose->second.asMatrix();
-      poses_[ i ] = &itPose->second;
+      bearing[trueCnt] = cam->oneBearing(tmp);
+      poses[trueCnt] = itPose->second.asMatrix();
+      poses_[trueCnt] = &itPose->second;
       ++trueCnt;
     }
     if (trueCnt > 2)
@@ -435,6 +435,7 @@ const
 
   // - Ransac loop
   Observations minimal_sample;
+  minimal_sample.reserve(10); // Just a guess
   for (IndexT i = 0; i < nbIter; ++i)
   {
     FixedArray<uint32_t, 16, 0 /* No init */> samples(obs.size());

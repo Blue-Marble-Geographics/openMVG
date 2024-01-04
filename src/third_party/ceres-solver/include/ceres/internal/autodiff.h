@@ -264,7 +264,9 @@ struct AutoDiff {
     // did not assign values to all of them.
     for (int i = 0; i < num_outputs; ++i) {
       output[i].a = kImpossibleValue;
-      output[i].v.setConstant(kImpossibleValue);
+      for (int j = 0; j < JetT::DIMENSION; ++j) {
+        output[i].v[j] = kImpossibleValue;
+      }
     }
 
 #define CERES_MAKE_1ST_ORDER_PERTURBATION(i)                            \

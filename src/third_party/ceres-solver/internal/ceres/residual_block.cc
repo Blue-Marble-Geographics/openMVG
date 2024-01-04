@@ -129,7 +129,14 @@ bool ResidualBlock::Evaluate(const bool apply_loss_function,
     return false;
   }
 
+#if 1// Much faster than Eigen for small num_residuals
+  double squared_norm = 0.;
+  for (int i = 0; i != num_residuals; ++i) {
+    squared_norm += residuals[i]*residuals[i];
+  }
+#else
   double squared_norm = VectorRef(residuals, num_residuals).squaredNorm();
+#endif
 
   // Update the jacobians with the local parameterizations.
   if (jacobians != NULL) {
