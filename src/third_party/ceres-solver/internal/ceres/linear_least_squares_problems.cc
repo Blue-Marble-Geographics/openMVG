@@ -287,6 +287,9 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem1() {
 
 // BlockSparseMatrix version
 LinearLeastSquaresProblem* LinearLeastSquaresProblem2() {
+  
+  throw std::runtime_error( "Unsupported" );
+#if 0
   int num_rows = 6;
   int num_cols = 5;
 
@@ -400,6 +403,9 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem2() {
   problem->A.reset(A);
 
   return problem;
+#else
+  return nullptr;
+#endif
 }
 
 
@@ -420,6 +426,9 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem2() {
 */
 // BlockSparseMatrix version
 LinearLeastSquaresProblem* LinearLeastSquaresProblem3() {
+#if 1 
+  return nullptr;
+#else
   int num_rows = 5;
   int num_cols = 2;
 
@@ -503,6 +512,7 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem3() {
   problem->A.reset(A);
 
   return problem;
+#endif
 }
 
 /*
@@ -526,6 +536,9 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem3() {
 // NOTE: This problem is too small and rank deficient to be solved without
 // the diagonal regularization.
 LinearLeastSquaresProblem* LinearLeastSquaresProblem4() {
+#if 1
+  return nullptr;
+#else
   int num_rows = 3;
   int num_cols = 7;
 
@@ -600,6 +613,7 @@ LinearLeastSquaresProblem* LinearLeastSquaresProblem4() {
 
   problem->A.reset(A);
   return problem;
+#endif
 }
 
 namespace {

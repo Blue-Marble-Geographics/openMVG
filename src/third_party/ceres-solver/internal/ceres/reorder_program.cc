@@ -71,13 +71,13 @@ namespace {
 static int MinParameterBlock(const ResidualBlock* residual_block,
                              int size_of_first_elimination_group) {
   int min_parameter_block_position = size_of_first_elimination_group;
-  for (int i = 0; i < residual_block->NumParameterBlocks(); ++i) {
-    ParameterBlock* parameter_block = residual_block->parameter_blocks()[i];
-    if (!parameter_block->IsConstant()) {
-      CHECK_NE(parameter_block->index(), -1)
+  for (int i = 0, cnt = residual_block->NumParameterBlocks(); i < cnt; ++i) {
+    ParameterBlock& parameter_block = *residual_block->parameter_blocks()[i];
+    if (!parameter_block.IsConstant()) {
+      DCHECK_NE(parameter_block.index(), -1)
           << "Did you forget to call Program::SetParameterOffsetsAndIndex()? "
           << "This is a Ceres bug; please contact the developers!";
-      min_parameter_block_position = std::min(parameter_block->index(),
+      min_parameter_block_position = std::min(parameter_block.index(),
                                               min_parameter_block_position);
     }
   }
@@ -233,12 +233,10 @@ bool ApplyOrdering(const ProblemImpl::ParameterMap& parameter_map,
       program->mutable_parameter_blocks();
   parameter_blocks->clear();
 
-  const map<int, set<double*> >& groups = ordering.group_to_elements();
-  for (map<int, set<double*> >::const_iterator group_it = groups.begin();
-       group_it != groups.end();
-       ++group_it) {
-    const set<double*>& group = group_it->second;
-    for (set<double*>::const_iterator parameter_block_ptr_it = group.begin();
+  const auto& groups = ordering.group_to_elements();
+  for (size_t i = 0, cnt = ordering.group_to_elements().size(); i < cnt; ++i) {
+    const auto& group = groups[i];
+    for (auto parameter_block_ptr_it = group.begin();
          parameter_block_ptr_it != group.end();
          ++parameter_block_ptr_it) {
       ProblemImpl::ParameterMap::const_iterator parameter_block_it =
@@ -247,7 +245,7 @@ bool ApplyOrdering(const ProblemImpl::ParameterMap& parameter_map,
         *error = StringPrintf("User specified ordering contains a pointer "
                               "to a double that is not a parameter block in "
                               "the problem. The invalid double is in group: %d",
-                              group_it->first);
+                              i);
         return false;
       }
       parameter_blocks->push_back(parameter_block_it->second);
@@ -260,7 +258,7 @@ bool LexicographicallyOrderResidualBlocks(
     const int size_of_first_elimination_group,
     Program* program,
     string* error) {
-  CHECK_GE(size_of_first_elimination_group, 1)
+  DCHECK_GE(size_of_first_elimination_group, 1)
       << "Congratulations, you found a Ceres bug! Please report this error "
       << "to the developers.";
 
@@ -268,9 +266,10 @@ bool LexicographicallyOrderResidualBlocks(
   // extra bucket at the end to catch all non-eliminated F blocks.
   vector<int> residual_blocks_per_e_block(size_of_first_elimination_group + 1);
   vector<ResidualBlock*>* residual_blocks = program->mutable_residual_blocks();
-  vector<int> min_position_per_residual(residual_blocks->size());
-  for (int i = 0; i < residual_blocks->size(); ++i) {
-    ResidualBlock* residual_block = (*residual_blocks)[i];
+  const int num_residual_blocks = residual_blocks->size();
+  vector<int> min_position_per_residual(num_residual_blocks);
+  for (int i = 0; i < num_residual_blocks; ++i) {
+    const ResidualBlock* residual_block = (*residual_blocks)[i];
     int position = MinParameterBlock(residual_block,
                                      size_of_first_elimination_group);
     min_position_per_residual[i] = position;
@@ -285,11 +284,11 @@ bool LexicographicallyOrderResidualBlocks(
   std::partial_sum(residual_blocks_per_e_block.begin(),
                    residual_blocks_per_e_block.end(),
                    offsets.begin());
-  CHECK_EQ(offsets.back(), residual_blocks->size())
+  DCHECK_EQ(offsets.back(), residual_blocks->size())
       << "Congratulations, you found a Ceres bug! Please report this error "
       << "to the developers.";
 
-  CHECK(find(residual_blocks_per_e_block.begin(),
+  DCHECK(find(residual_blocks_per_e_block.begin(),
              residual_blocks_per_e_block.end() - 1, 0) !=
         residual_blocks_per_e_block.end())
       << "Congratulations, you found a Ceres bug! Please report this error "
@@ -311,7 +310,7 @@ bool LexicographicallyOrderResidualBlocks(
     offsets[bucket]--;
 
     // Sanity.
-    CHECK(reordered_residual_blocks[offsets[bucket]] == NULL)
+    DCHECK(reordered_residual_blocks[offsets[bucket]] == NULL)
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
 
@@ -321,13 +320,13 @@ bool LexicographicallyOrderResidualBlocks(
   // Sanity check #1: The difference in bucket offsets should match the
   // histogram sizes.
   for (int i = 0; i < size_of_first_elimination_group; ++i) {
-    CHECK_EQ(residual_blocks_per_e_block[i], offsets[i + 1] - offsets[i])
+    DCHECK_EQ(residual_blocks_per_e_block[i], offsets[i + 1] - offsets[i])
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
   }
   // Sanity check #2: No NULL's left behind.
   for (int i = 0; i < reordered_residual_blocks.size(); ++i) {
-    CHECK(reordered_residual_blocks[i] != NULL)
+    DCHECK(reordered_residual_blocks[i] != NULL)
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
   }
@@ -335,6 +334,11 @@ bool LexicographicallyOrderResidualBlocks(
   // Now that the residuals are collected by E block, swap them in place.
   swap(*program->mutable_residual_blocks(), reordered_residual_blocks);
   return true;
+}
+
+template <typename T>
+std::unique_ptr<T> make_unique_uninitialized(const std::size_t size) {
+  return std::unique_ptr<T>(new typename std::remove_extent<T>::type[size]);
 }
 
 // Pre-order the columns corresponding to the schur complement if
@@ -348,36 +352,41 @@ void MaybeReorderSchurComplementColumnsUsingSuiteSparse(
     return;
   }
 
-  vector<int> constraints;
   vector<ParameterBlock*>& parameter_blocks =
       *(program->mutable_parameter_blocks());
+  const auto num_parameter_blocks = parameter_blocks.size();
 
-  for (int i = 0; i < parameter_blocks.size(); ++i) {
-    constraints.push_back(
+  std::unique_ptr<ParameterBlock*[]> scratch = make_unique_uninitialized<ParameterBlock*[]>(num_parameter_blocks);
+
+  int* constraints = (int*) scratch.get();
+
+  for (int i = 0; i < num_parameter_blocks; ++i) {
+    constraints[i] =
         parameter_block_ordering.GroupId(
-            parameter_blocks[i]->mutable_user_state()));
+        parameter_blocks[i]->mutable_user_state());
   }
 
   // Renumber the entries of constraints to be contiguous integers as
   // CAMD requires that the group ids be in the range [0,
   // parameter_blocks.size() - 1].
-  MapValuesToContiguousRange(constraints.size(), &constraints[0]);
+  MapValuesToContiguousRange(num_parameter_blocks, (int*)&constraints[0]);
 
   // Compute a block sparse presentation of J'.
-  scoped_ptr<TripletSparseMatrix> tsm_block_jacobian_transpose(
-      program->CreateJacobianBlockSparsityTranspose());
+  TripletSparseMatrix tsm_block_jacobian_transpose(
+      *program->CreateJacobianBlockSparsityTranspose());
 
   cholmod_sparse* block_jacobian_transpose =
-      ss.CreateSparseMatrix(tsm_block_jacobian_transpose.get());
+      ss.CreateSparseMatrix(&tsm_block_jacobian_transpose);
 
-  vector<int> ordering(parameter_blocks.size(), 0);
+  FixedArray<int, 10> ordering(parameter_blocks.size());
   ss.ConstrainedApproximateMinimumDegreeOrdering(block_jacobian_transpose,
-                                                 &constraints[0],
+                                                 (int*)&constraints[0],
                                                  &ordering[0]);
-  ss.Free(block_jacobian_transpose);
 
-  const vector<ParameterBlock*> parameter_blocks_copy(parameter_blocks);
-  for (int i = 0; i < program->NumParameterBlocks(); ++i) {
+  auto parameter_blocks_copy = scratch.get();
+  std::copy(std::begin(parameter_blocks), std::end(parameter_blocks), parameter_blocks_copy);
+
+  for (int i = 0; i < num_parameter_blocks; ++i) {
     parameter_blocks[i] = parameter_blocks_copy[ordering[i]];
   }
 
@@ -471,7 +480,7 @@ bool ReorderProgramForSchurTypeLinearSolver(
     const int size_of_first_elimination_group =
         ComputeStableSchurOrdering(*program, &schur_ordering);
 
-    CHECK_EQ(schur_ordering.size(), program->NumParameterBlocks())
+    DCHECK_EQ(schur_ordering.size(), program->NumParameterBlocks())
         << "Congratulations, you found a Ceres bug! Please report this error "
         << "to the developers.";
 
@@ -490,11 +499,8 @@ bool ReorderProgramForSchurTypeLinearSolver(
     // group.
 
     // Verify that the first elimination group is an independent set.
-    const set<double*>& first_elimination_group =
-        parameter_block_ordering
-        ->group_to_elements()
-        .begin()
-        ->second;
+    const auto& first_elimination_group = (!parameter_block_ordering->group_to_elements()[0].empty()) ?
+      parameter_block_ordering->group_to_elements()[0] : parameter_block_ordering->group_to_elements()[1];
     if (!program->IsParameterBlockSetIndependent(first_elimination_group)) {
       *error =
           StringPrintf("The first elimination group in the parameter block "
@@ -513,8 +519,11 @@ bool ReorderProgramForSchurTypeLinearSolver(
 
   program->SetParameterOffsetsAndIndex();
 
+  const auto& first_elimination_group = ( !parameter_block_ordering->group_to_elements()[0].empty() ) ?
+    parameter_block_ordering->group_to_elements()[0] : parameter_block_ordering->group_to_elements()[1];
+
   const int size_of_first_elimination_group =
-      parameter_block_ordering->group_to_elements().begin()->second.size();
+    first_elimination_group.size();
 
   if (linear_solver_type == SPARSE_SCHUR) {
     if (sparse_linear_algebra_library_type == SUITE_SPARSE) {

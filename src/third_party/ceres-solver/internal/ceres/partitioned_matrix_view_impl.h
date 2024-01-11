@@ -45,7 +45,7 @@ namespace internal {
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 PartitionedMatrixView<kRowBlockSize, kEBlockSize, kFBlockSize>::
 PartitionedMatrixView(
-    const BlockSparseMatrix& matrix,
+    BlockSparseMatrix& matrix,
     int num_col_blocks_e)
     : matrix_(matrix),
       num_col_blocks_e_(num_col_blocks_e) {
@@ -61,7 +61,7 @@ PartitionedMatrixView(
   // explicit_schur_complement_solver.h
   num_row_blocks_e_ = 0;
   for (int r = 0; r < bs->rows.size(); ++r) {
-    const std::vector<Cell>& cells = bs->rows[r].cells;
+    const Cell* cells = bs->rows[r].cells;
     if (cells[0].block_id < num_col_blocks_e_) {
       ++num_row_blocks_e_;
     }
@@ -131,8 +131,9 @@ RightMultiplyF(const double* x, double* y) const {
   for (int r = 0; r < num_row_blocks_e_; ++r) {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 1; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const size_t num_cells = bs->rows[r].num_cells;
+    for (int c = 1; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_pos = bs->col_positions[col_block_id];
       const int col_block_size = bs->col_sizes[col_block_id];
@@ -146,8 +147,9 @@ RightMultiplyF(const double* x, double* y) const {
   for (int r = num_row_blocks_e_; r < bs->rows.size(); ++r) {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 0; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const int num_cells = bs->rows[r].block.size;
+    for (int c = 0; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_pos = bs->col_positions[col_block_id];
       const int col_block_size = bs->col_sizes[col_block_id];
@@ -197,8 +199,9 @@ LeftMultiplyF(const double* x, double* y) const {
   for (int r = 0; r < num_row_blocks_e_; ++r) {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 1; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const size_t num_cells = bs->rows[r].num_cells;
+    for (int c = 1; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_pos = bs->col_positions[col_block_id];
       const int col_block_size = bs->col_sizes[col_block_id];
@@ -212,8 +215,9 @@ LeftMultiplyF(const double* x, double* y) const {
   for (int r = num_row_blocks_e_; r < bs->rows.size(); ++r) {
     const int row_block_pos = bs->rows[r].block.position;
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 0; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const size_t num_cells = bs->rows[r].num_cells;
+    for (int c = 0; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_pos = bs->col_positions[col_block_id];
       const int col_block_size = bs->col_sizes[col_block_id];
@@ -233,13 +237,15 @@ LeftMultiplyF(const double* x, double* y) const {
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 BlockSparseMatrix*
 PartitionedMatrixView<kRowBlockSize, kEBlockSize, kFBlockSize>::
-CreateBlockDiagonalMatrixLayout(int start_col_block, int end_col_block) const {
-  const CompressedRowBlockStructure* bs = matrix_.block_structure();
+CreateBlockDiagonalMatrixLayout(int start_col_block, int end_col_block) {
+  CompressedRowBlockStructure* bs = matrix_.block_structure();
   CompressedRowBlockStructure* block_diagonal_structure =
       new CompressedRowBlockStructure;
 
   int block_position = 0;
   int diagonal_cell_position = 0;
+
+  bs->all_cells.resize(end_col_block - start_col_block);
 
   // Iterate over the column blocks, creating a new diagonal block for
   // each column block.
@@ -258,9 +264,11 @@ CreateBlockDiagonalMatrixLayout(int start_col_block, int end_col_block) const {
     row.block.position = diagonal_block_position2;
     row.block.size = diagonal_block_size;
 
-    row.cells.push_back(Cell());
-    Cell& cell = row.cells.back();
-    cell.block_id = c - start_col_block;
+    const int block_id = c - start_col_block;
+    row.cells = &bs->all_cells[block_id];
+    row.num_cells = 1;
+    Cell& cell = *row.cells;
+    cell.block_id = block_id;
     cell.position = diagonal_cell_position;
 
     block_position += diagonal_block_size;
@@ -275,7 +283,7 @@ CreateBlockDiagonalMatrixLayout(int start_col_block, int end_col_block) const {
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 BlockSparseMatrix*
 PartitionedMatrixView<kRowBlockSize, kEBlockSize, kFBlockSize>::
-CreateBlockDiagonalEtE() const {
+CreateBlockDiagonalEtE() {
   BlockSparseMatrix* block_diagonal =
       CreateBlockDiagonalMatrixLayout(0, num_col_blocks_e_);
   UpdateBlockDiagonalEtE(block_diagonal);
@@ -285,7 +293,7 @@ CreateBlockDiagonalEtE() const {
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 BlockSparseMatrix*
 PartitionedMatrixView<kRowBlockSize, kEBlockSize, kFBlockSize>::
-CreateBlockDiagonalFtF() const {
+CreateBlockDiagonalFtF() {
   BlockSparseMatrix* block_diagonal =
       CreateBlockDiagonalMatrixLayout(
           num_col_blocks_e_, num_col_blocks_e_ + num_col_blocks_f_);
@@ -343,8 +351,9 @@ UpdateBlockDiagonalFtF(BlockSparseMatrix* block_diagonal) const {
   const double* values = matrix_.values();
   for (int r = 0; r < num_row_blocks_e_; ++r) {
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 1; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const size_t num_cells = bs->rows[r].num_cells;
+    for (int c = 1; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_size = bs->col_sizes[col_block_id];
       const int diagonal_block_id = col_block_id - num_col_blocks_e_;
@@ -362,8 +371,9 @@ UpdateBlockDiagonalFtF(BlockSparseMatrix* block_diagonal) const {
 
   for (int r = num_row_blocks_e_; r < bs->rows.size(); ++r) {
     const int row_block_size = bs->rows[r].block.size;
-    const std::vector<Cell>& cells = bs->rows[r].cells;
-    for (int c = 0; c < cells.size(); ++c) {
+    const Cell* cells = bs->rows[r].cells;
+    const size_t num_cells = bs->rows[r].num_cells;
+    for (int c = 0; c < num_cells; ++c) {
       const int col_block_id = cells[c].block_id;
       const int col_block_size = bs->col_sizes[col_block_id];
       const int diagonal_block_id = col_block_id - num_col_blocks_e_;

@@ -131,12 +131,14 @@ bool Relative_Pose_Engine::Relative_Pose_Engine::Process(
       size_t number_matches = matches.size();
       Mat2X x1(2, number_matches), x2(2, number_matches);
       number_matches = 0;
+      const auto& feats_per_view_I = features_provider_->feats_per_view.at(I);
+      const auto& feats_per_view_J = features_provider_->feats_per_view.at(J);
       for (const auto & match : matches)
       {
         x1.col(number_matches) = cam_I->get_ud_pixel(
-          features_provider_->feats_per_view.at(I)[match.i_].coords().cast<double>());
+          feats_per_view_I[match.i_].coords().cast<double>());
         x2.col(number_matches++) = cam_J->get_ud_pixel(
-          features_provider_->feats_per_view.at(J)[match.j_].coords().cast<double>());
+          feats_per_view_J[match.j_].coords().cast<double>());
       }
 
       RelativePose_Info relativePose_info;

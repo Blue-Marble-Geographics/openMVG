@@ -83,6 +83,7 @@ class BlockSparseMatrix : public SparseMatrix {
 
   void ToTripletSparseMatrix(TripletSparseMatrix* matrix) const;
   const CompressedRowBlockStructure* block_structure() const;
+  CompressedRowBlockStructure* block_structure();
 
   // Append the contents of m to the bottom of this matrix. m must
   // have the same column blocks structure as this matrix.

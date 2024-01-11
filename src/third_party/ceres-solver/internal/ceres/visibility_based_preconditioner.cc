@@ -247,7 +247,7 @@ void VisibilityBasedPreconditioner::ComputeBlockPairsInPreconditioner(
   // 3d points and m is the maximum number of cameras seeing any
   // point, which for most scenes is a fairly small number.
   while (r < num_row_blocks) {
-    int e_block_id = bs.rows[r].cells.front().block_id;
+    int e_block_id = bs.rows[r].cells[0].block_id;
     if (e_block_id >= num_eliminate_blocks) {
       // Skip the rows whose first block is an f_block.
       break;
@@ -256,14 +256,14 @@ void VisibilityBasedPreconditioner::ComputeBlockPairsInPreconditioner(
     set<int> f_blocks;
     for (; r < num_row_blocks; ++r) {
       const CompressedRow& row = bs.rows[r];
-      if (row.cells.front().block_id != e_block_id) {
+      if (row.cells[0].block_id != e_block_id) {
         break;
       }
 
       // Iterate over the blocks in the row, ignoring the first block
       // since it is the one to be eliminated and adding the rest to
       // the list of f_blocks associated with this e_block.
-      for (int c = 1; c < row.cells.size(); ++c) {
+      for (int c = 1; c < row.num_cells; ++c) {
         const Cell& cell = row.cells[c];
         const int f_block_id = cell.block_id - num_eliminate_blocks;
         CHECK_GE(f_block_id, 0);
@@ -287,10 +287,10 @@ void VisibilityBasedPreconditioner::ComputeBlockPairsInPreconditioner(
   // The remaining rows which do not contain any e_blocks.
   for (; r < num_row_blocks; ++r) {
     const CompressedRow& row = bs.rows[r];
-    CHECK_GE(row.cells.front().block_id, num_eliminate_blocks);
-    for (int i = 0; i < row.cells.size(); ++i) {
+    CHECK_GE(row.cells[0].block_id, num_eliminate_blocks);
+    for (int i = 0; i < row.num_cells; ++i) {
       const int block1 = row.cells[i].block_id - num_eliminate_blocks;
-      for (int j = 0; j < row.cells.size(); ++j) {
+      for (int j = 0; j < row.num_cells; ++j) {
         const int block2 = row.cells[j].block_id - num_eliminate_blocks;
         if (block1 <= block2) {
           if (IsBlockPairInPreconditioner(block1, block2)) {

@@ -73,7 +73,7 @@ namespace internal {
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
 SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::~SchurEliminator() {
-  STLDeleteElements(&rhs_locks_);
+  //STLDeleteElements(&rhs_locks_);
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -112,7 +112,7 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
   // the way also compute the amount of space each chunk will need
   // to perform the elimination.
   while (r < num_row_blocks) {
-    const int chunk_block_id = bs->rows[r].cells.front().block_id;
+    const int chunk_block_id = bs->rows[r].cells[0].block_id;
     if (chunk_block_id >= num_eliminate_blocks_) {
       break;
     }
@@ -128,13 +128,13 @@ void SchurEliminator<kRowBlockSize, kEBlockSize, kFBlockSize>::Init(
     // different than the one in the first row for the chunk.
     while (r + chunk.size < num_row_blocks) {
       const CompressedRow& row = bs->rows[r + chunk.size];
-      if (row.cells.front().block_id != chunk_block_id) {
+      if (row.cells[0].block_id != chunk_block_id) {
         break;
       }
 
       // Iterate over the blocks in the row, ignoring the first
       // block since it is the one to be eliminated.
-      for (int c = 1, cnt = row.cells.size(); c < cnt; ++c) {
+      for (int c = 1, cnt = row.num_cells; c < cnt; ++c) {
         const Cell& cell = row.cells[c];      
         for (const auto& i : chunk.buffer_layout) {
           if (i.first == cell.block_id) {
@@ -173,11 +173,15 @@ duplicate:
   // allocate buffer_size_ per thread.
   chunk_outer_product_buffer_.reset(new double[buffer_size_ * num_threads_]);
 
+#if 1
+  rhs_locks_.resize(num_col_blocks - num_eliminate_blocks_);
+#else
   STLDeleteElements(&rhs_locks_);
   rhs_locks_.resize(num_col_blocks - num_eliminate_blocks_);
   for (int i = 0; i < num_col_blocks - num_eliminate_blocks_; ++i) {
     rhs_locks_[i] = new Mutex;
   }
+#endif
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -245,11 +249,11 @@ Eliminate(const BlockSparseMatrix* A,
     throw "Unknown matrix lhs.";
   }
 
+  int ncores = num_threads_;
+  if (ncores > 1) {
   SetEnvironmentVariableA( "OMP_PROC_BIND", "true" );
   SetEnvironmentVariableA( "OMP_PLACES", "cores" );
-  int ncores = num_threads_;
-  if ( ncores > 1 ) {
-    ncores /= 4;
+    ncores = std::max(ncores/4, 1); // 2 too much, 3 not better, 6 not better.
   }
 
   const int cnt = chunks_.size();
@@ -264,7 +268,7 @@ Eliminate(const BlockSparseMatrix* A,
     double* buffer = buffer_.get() + thread_id * buffer_size_;
     const Chunk& chunk = chunks_[i];
     const auto chunk_start = chunk.start;
-    const int e_block_id = bs->rows[chunk_start].cells.front().block_id;
+    const int e_block_id = bs->rows[chunk_start].cells[0].block_id;
     const int e_block_size = bs_col_sizes[e_block_id];
 
     VectorRef(buffer, buffer_size_).setZero();
@@ -280,7 +284,7 @@ Eliminate(const BlockSparseMatrix* A,
       ete.setZero();
     }
 
-    FixedArray<double, 8> g(e_block_size);
+    FixedArray<double, 10, 0 /* No init */> g(e_block_size);
     typename EigenTypes<kEBlockSize>::VectorRef gref(g.get(), e_block_size);
     gref.setZero();
 
@@ -312,7 +316,7 @@ Eliminate(const BlockSparseMatrix* A,
     //
     //   rhs = F'b - F'E(E'E)^(-1) E'b
 
-    FixedArray<double, 8> inverse_ete_g(e_block_size);
+    FixedArray<double, 10, 0 /* No init */> inverse_ete_g(e_block_size);
     MatrixVectorMultiply<kEBlockSize, kEBlockSize, 0>(
       inverse_ete.data(),
       e_block_size,
@@ -335,9 +339,10 @@ Eliminate(const BlockSparseMatrix* A,
   // For rows with no e_blocks, the schur complement update reduces to
   // S += F'F.
   NoEBlockRowsUpdate(A, b,  uneliminated_row_begins_, lhs, rhs);
-#if 1 // JPB WIP BUG
+
+  if (ncores > 1) {
   SetEnvironmentVariableA( "OMP_PROC_BIND", "false" );
-#endif
+  }
 }
 
 template <int kRowBlockSize, int kEBlockSize, int kFBlockSize>
@@ -355,11 +360,17 @@ BackSubstitute(const BlockSparseMatrix* A,
   const auto& bs_col_sizes = bs->col_sizes;
   const auto& bs_col_positions = bs->col_positions;
 
-#pragma omp parallel for num_threads(num_threads_) schedule(dynamic)
+  int ncores = num_threads_;
+  if (ncores > 1) {
+    SetEnvironmentVariableA("OMP_PROC_BIND", "true");
+    SetEnvironmentVariableA("OMP_PLACES", "cores");
+    ncores = std::max(ncores/4, 1);
+  }
+#pragma omp parallel for num_threads(ncores) schedule(dynamic)
   for (int i = 0; i < cnt; ++i) {
     const Chunk& chunk = chunks_[i];
     const auto chunk_start = chunk.start;
-    const int e_block_id = bs_rows[chunk_start].cells.front().block_id;
+    const int e_block_id = bs_rows[chunk_start].cells[0].block_id;
     const auto e_block_size = bs_col_sizes[e_block_id];
     const auto e_block_position = bs_col_positions[e_block_id];
 
@@ -391,15 +402,16 @@ BackSubstitute(const BlockSparseMatrix* A,
 
     SmallBiasHelper sbhInner;
 
-    for (size_t j = 0, cnt2 = chunk.size; j < cnt2; ++j) {
+    for (int j = 0, cnt2 = chunk.size; j < cnt2; ++j) {
       const CompressedRow& row = bs_rows[chunk_start + j];
       const auto& row_cells = row.cells;
+      const int num_cells = row.num_cells;
       const auto row_block_size = row.block.size;
-      const Cell& e_cell = row_cells.front();
+      const Cell& e_cell = row_cells[0];
       const auto* e_cell_values = values + e_cell.position;
       DCHECK_EQ(e_block_id, e_cell.block_id);
 
-      FixedArray<double, 8> sj(row_block_size);
+      FixedArray<double, 10, 0 /* No init */> sj(row_block_size);
 
       typename EigenTypes<kRowBlockSize>::VectorRef(sj.get(), row_block_size) =
         typename EigenTypes<kRowBlockSize>::ConstVectorRef
@@ -408,7 +420,7 @@ BackSubstitute(const BlockSparseMatrix* A,
       sbhInner.num_row_a_ = row_block_size;
       sbhInner.C_ = sj.get();
 
-      for (size_t c = 1, cnt3 = row_cells.size(); c < cnt3; ++c) {
+      for (int c = 1, cnt3 = num_cells; c < cnt3; ++c) {
         const auto& row_cell_c = row_cells[c];
         const int f_block_id = row_cell_c.block_id;
         const int f_block_size = bs_col_sizes[f_block_id];
@@ -439,6 +451,9 @@ BackSubstitute(const BlockSparseMatrix* A,
     y_block = InvertPSDMatrix<kEBlockSize>(assume_full_rank_ete_, ete)
         * y_block;
   }
+  if (ncores > 1) {
+    SetEnvironmentVariableA("OMP_PROC_BIND", "false");
+  }
 }
 
 // Update the rhs of the reduced linear system. Compute
@@ -457,7 +472,7 @@ UpdateRhs(const Chunk& chunk,
   const auto& bs_rows = bs->rows;
   const auto& bs_cols_sizes = bs->col_sizes;
   const double* values = A->values();
-  const int e_block_id = bs_rows[chunk.start].cells.front().block_id;
+  const int e_block_id = bs_rows[chunk.start].cells[0].block_id;
   const int e_block_size = bs_cols_sizes[e_block_id];
 
   SmallBiasHelper sbhOuter;
@@ -467,10 +482,10 @@ UpdateRhs(const Chunk& chunk,
   SmallBiasHelper sbhInner;
 
   int b_pos = bs_rows[row_block_counter].block.position;
-  for (size_t j = 0, cnt = chunk.size; j < cnt; ++j) {
+  for (int j = 0, cnt = chunk.size; j < cnt; ++j) {
     const CompressedRow& row = bs_rows[row_block_counter + j];
     const auto row_block_size = row.block.size;
-    const Cell& e_cell = row.cells.front();
+    const Cell& e_cell = row.cells[ 0 ];
 
     typename EigenTypes<kRowBlockSize>::Vector sj =
       typename EigenTypes<kRowBlockSize>::ConstVectorRef
@@ -485,7 +500,7 @@ UpdateRhs(const Chunk& chunk,
 
     MatrixVectorMultiply2<kRowBlockSize, kEBlockSize, -1>(sbhOuter);
 
-    for (size_t c = 1, cnt2 = row.cells.size(); c < cnt2; ++c) {
+    for (int c = 1, cnt2 = row.num_cells; c < cnt2; ++c) {
       const auto& row_cell_c = row.cells[c];
       const int block_id = row_cell_c.block_id;
       sbhInner.num_col_a_ = bs_cols_sizes[block_id];
@@ -493,15 +508,15 @@ UpdateRhs(const Chunk& chunk,
       sbhInner.A_ = values + row_cell_c.position;
       sbhInner.C_ = rhs + lhs_row_layout_[block];
 
-      const auto& lock = rhs_locks_[block];
+      auto& lock = rhs_locks_[block];
       if (num_threads_ > 1) {
-        lock->Lock();
+        lock.Lock();
       }
 
       MatrixTransposeVectorMultiply2<kRowBlockSize, kFBlockSize, 1>(sbhInner);
 
       if (num_threads_ > 1) {
-        lock->Unlock();
+        lock.Unlock();
       }
     }
     b_pos += row_block_size;
@@ -575,7 +590,7 @@ ChunkDiagonalBlockAndGradient(
   for (int j = 0, cnt = chunk.size; j < cnt; ++j) {
     const CompressedRow& row = bs_rows[row_block_counter + j];
     const auto& row_cells = row.cells;
-    const auto cnt2 = row_cells.size();
+    const auto cnt2 = row.num_cells;
     const auto row_block_size = row.block.size;
     sbhOuter.num_row_a_ = row_block_size;
     sbhOuter.num_row_b_ = row_block_size;
@@ -583,7 +598,7 @@ ChunkDiagonalBlockAndGradient(
 
     sbhInner.num_row_a_ = row_block_size;
     sbhInner.num_row_b_ = row_block_size;
-    const Cell& e_cell = row_cells.front();
+    const Cell& e_cell = row_cells[0];
 
     if (cnt2 > 1) {
       if (eDense == lhsType) {
@@ -661,11 +676,11 @@ NoEBlockRowsUpdate(const BlockSparseMatrix* A,
     NoEBlockRowOuterProduct(A, row_block_counter, lhs);
 
     const CompressedRow& row = bs_rows[row_block_counter];
-    const auto& row_cells = row.cells;
+    const auto* row_cells = row.cells;
     sbh.num_row_a_ = row.block.size;
     sbh.B_ = b + row.block.position;
 
-    for (size_t c = 0, cnt2 = row_cells.size(); c < cnt2; ++c) {
+    for (size_t c = 0, cnt2 = row.num_cells; c < cnt2; ++c) {
       const auto& row_cell_c = row_cells[c];
       const int block_id = row_cell_c.block_id;
       const auto block_size = bs_cols_sizes[block_id];
@@ -718,7 +733,7 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
   sbhInner.num_row_a_ = row_block_size;
   sbhInner.num_row_b_ = row_block_size;
 
-  for (size_t i = 0, cnt = row_cells.size(); i < cnt; ++i) {
+  for (size_t i = 0, cnt = row.num_cells; i < cnt; ++i) {
     const auto& row_cell_i = row_cells[i];
     const double* row_cell_i_values_position = values + row_cell_i.position;
     const int block1 = row_cell_i.block_id - num_eliminate_blocks_;
@@ -766,6 +781,7 @@ NoEBlockRowOuterProduct(const BlockSparseMatrix* A,
       if (cell_info) {
         sbhInner.B_ = values + row_cell_j.position;
         sbhInner.num_col_b_ = bs_col_sizes[row_cell_j.block_id];
+        sbhInner.C_ = cell_info->values;
 
         auto& lock = cell_info->m;
         if (num_threads_ > 1) {

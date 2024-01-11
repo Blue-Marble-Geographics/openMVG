@@ -178,11 +178,13 @@ class Mutex {
   // when we tell it to, and never makes assumptions is_safe_ is
   // always true.  volatile is the most reliable way to do that.
 
+#if 0
   // Catch the error of writing Mutex when intending MutexLock.
   Mutex(Mutex* /*ignored*/) {}
   // Disallow "evil" constructors
   Mutex(const Mutex&);
   void operator=(const Mutex&);
+#endif
 };
 
 // Now the implementation of Mutex for various systems

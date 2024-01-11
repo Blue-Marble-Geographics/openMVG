@@ -222,8 +222,10 @@ bool Bundle_Adjustment_Ceres::Adjust
           Vec3 pose_centroid = Vec3::Zero();
           for (const auto & pose_it : sfm_data.poses)
           {
-            pose_centroid += (pose_it.second.center() / (double)sfm_data.poses.size());
+            pose_centroid += pose_it.second.center();
           }
+          pose_centroid /= (double)sfm_data.poses.size();
+
           sim_to_center = openMVG::geometry::Similarity3(openMVG::sfm::Pose3(Mat3::Identity(), pose_centroid), 1.0);
           openMVG::sfm::ApplySimilarity(sim_to_center, sfm_data, true);
         }
@@ -235,11 +237,20 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
   }
 
-  ceres::Problem problem;
+  ceres::Problem::Options problem_options;
+  problem_options.enable_fast_removal = false;
+  problem_options.disable_all_safety_checks = true;
+  ceres::Problem problem(problem_options);
 
   // Data wrapper for refinement:
   Hash_Map<IndexT, std::vector<double>> map_intrinsics;
   Hash_Map<IndexT, std::vector<double>> map_poses;
+
+  const int factor = sfm_data.structure.begin()->second.obs.size();
+  problem.Reserve(
+    sfm_data.structure.size()+sfm_data.poses.size()+sfm_data.intrinsics.size(),
+    sfm_data.structure.size()*factor
+  );
 
   // Setup Poses data & subparametrization
   for (const auto & pose_it : sfm_data.poses)
@@ -330,10 +341,12 @@ bool Bundle_Adjustment_Ceres::Adjust
       new ceres::HuberLoss(Square(4.0))
       : nullptr;
 
+
   // For all visibility add reprojections errors:
   for (auto & structure_landmark_it : sfm_data.structure)
   {
     const Observations & obs = structure_landmark_it.second.obs;
+    auto* p = structure_landmark_it.second.X.data();
 
     for (const auto & obs_it : obs)
     {
@@ -343,26 +356,31 @@ bool Bundle_Adjustment_Ceres::Adjust
       // Each Residual block takes a point and a camera as input and outputs a 2
       // dimensional residual. Internally, the cost function stores the observed
       // image location and compares the reprojection against the observation.
-      ceres::CostFunction* cost_function =
-        IntrinsicsToCostFunction(sfm_data.intrinsics.at(view->id_intrinsic).get(),
-                                 obs_it.second.x);
+      //ResidualErrorFunctor_Pinhole_Intrinsic_Radial_K3 tmp(obs_it.second.x.data());
 
+      ceres::CostFunction* cost_function = IntrinsicsToCostFunction(sfm_data.intrinsics.at(view->id_intrinsic).get(), obs_it.second.x);
+
+      //  ( new ceres::AutoDiffCostFunction2
+      //    <2, 6, 6, 3>(obs_it.second.x.data()) );
+
+      auto& it = map_intrinsics.at(view->id_intrinsic); // A ptr to a vector of doubles
+      auto& it2 = map_poses.at(view->id_pose)[ 0 ]; // A ptr to a vector of doubles
       if (cost_function)
       {
-        if (!map_intrinsics.at(view->id_intrinsic).empty())
+        if (!it.empty())
         {
           problem.AddResidualBlock(cost_function,
             p_LossFunction,
-            &map_intrinsics.at(view->id_intrinsic)[0],
-            &map_poses.at(view->id_pose)[0],
-            structure_landmark_it.second.X.data());
+            &it[0],
+            &it2,
+            p);  // A ptr to a vector of doubles (a Vec3)
         }
         else
         {
           problem.AddResidualBlock(cost_function,
             p_LossFunction,
-            &map_poses.at(view->id_pose)[0],
-            structure_landmark_it.second.X.data());
+            &it2,
+            p);
         }
       }
       else
@@ -370,9 +388,9 @@ bool Bundle_Adjustment_Ceres::Adjust
         OPENMVG_LOG_ERROR << "Cannot create a CostFunction for this camera model.";
         return false;
       }
-    }
     if (options.structure_opt == Structure_Parameter_Type::NONE)
-      problem.SetParameterBlockConstant(structure_landmark_it.second.X.data());
+      problem.SetParameterBlockConstant(p);
+    }
   }
 
   if (options.control_point_opt.bUse_control_points)

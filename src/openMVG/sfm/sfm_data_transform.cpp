@@ -25,7 +25,7 @@ void ApplySimilarity
   // Transform the landmark positions
   for (auto & iterLandMark : sfm_data.structure)
   {
-    iterLandMark.second.X = sim(iterLandMark.second.X);
+    iterLandMark.second.X = sim.AsVec3(iterLandMark.second.X);
   }
 
   // Transform the camera positions
@@ -41,7 +41,7 @@ void ApplySimilarity
       // Transform the camera position priors
       if (sfm::ViewPriors * prior = dynamic_cast<sfm::ViewPriors*>(iterView.second.get()))
       {
-        prior->pose_center_ = sim(prior->pose_center_);
+        prior->pose_center_ = sim.AsVec3(prior->pose_center_);
       }
     }
 

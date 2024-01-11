@@ -254,25 +254,27 @@ void SparseSchurComplementSolver::InitStorage(
     block_pairs.insert(make_pair(i, i));
   }
 
+  vector<int> f_blocks;
   int r = 0;
   while (r < num_row_blocks) {
-    int e_block_id = bs->rows[r].cells.front().block_id;
+    int e_block_id = bs->rows[r].cells[0].block_id;
     if (e_block_id >= num_eliminate_blocks) {
       break;
     }
-    vector<int> f_blocks;
+
+    f_blocks.clear();
 
     // Add to the chunk until the first block in the row is
     // different than the one in the first row for the chunk.
     for (; r < num_row_blocks; ++r) {
       const CompressedRow& row = bs->rows[r];
-      if (row.cells.front().block_id != e_block_id) {
+      if (row.cells[0].block_id != e_block_id) {
         break;
       }
 
       // Iterate over the blocks in the row, ignoring the first
       // block since it is the one to be eliminated.
-      for (int c = 1; c < row.cells.size(); ++c) {
+      for (int c = 1; c < row.num_cells; ++c) {
         const Cell& cell = row.cells[c];
         f_blocks.push_back(cell.block_id - num_eliminate_blocks);
       }
@@ -282,7 +284,7 @@ void SparseSchurComplementSolver::InitStorage(
     f_blocks.erase(unique(f_blocks.begin(), f_blocks.end()), f_blocks.end());
     for (int i = 0; i < f_blocks.size(); ++i) {
       for (int j = i + 1; j < f_blocks.size(); ++j) {
-        block_pairs.insert(make_pair(f_blocks[i], f_blocks[j]));
+        block_pairs.emplace(f_blocks[i], f_blocks[j]);
       }
     }
   }
@@ -291,13 +293,13 @@ void SparseSchurComplementSolver::InitStorage(
   // into the schur complement via an outer product.
   for (; r < num_row_blocks; ++r) {
     const CompressedRow& row = bs->rows[r];
-    CHECK_GE(row.cells.front().block_id, num_eliminate_blocks);
-    for (int i = 0; i < row.cells.size(); ++i) {
+    DCHECK_GE(row.cells[0].block_id, num_eliminate_blocks);
+    for (int i = 0; i < row.num_cells; ++i) {
       int r_block1_id = row.cells[i].block_id - num_eliminate_blocks;
-      for (int j = 0; j < row.cells.size(); ++j) {
+      for (int j = 0; j < row.num_cells; ++j) {
         int r_block2_id = row.cells[j].block_id - num_eliminate_blocks;
         if (r_block1_id <= r_block2_id) {
-          block_pairs.insert(make_pair(r_block1_id, r_block2_id));
+          block_pairs.emplace(r_block1_id, r_block2_id);
         }
       }
     }
