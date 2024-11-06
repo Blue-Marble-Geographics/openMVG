@@ -26,7 +26,7 @@ enum class ELogMode : unsigned char
 };
 
 // Configure a default severity for the logger
-static ELogMode logger_severity = ELogMode::VERBOSITY_INFO;
+static ELogMode logger_severity = ELogMode::VERBOSITY_WARNING;
 
 inline std::string ELogModeToString(const ELogMode & log_mode)
 {
