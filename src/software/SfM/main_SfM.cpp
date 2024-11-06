@@ -132,11 +132,14 @@ bool computeIndexFromImageNames(
 
 int main(int argc, char **argv)
 {
-  OPENMVG_LOG_INFO
+  OPENMVG_LOG_WARNING
       << "\n-----------------------------------------------------------"
       << "\n Structure from Motion:"
       << "\n-----------------------------------------------------------";
   CmdLine cmd;
+
+  OPENMVG_LOG_WARNING
+      << "\nIncludes sfm_data_filters adjustment for GM 26.1.";
 
   // Common options:
   std::string

@@ -12,7 +12,6 @@
 #include "openMVG/system/logger.hpp"
 #include "openMVG/tracks/union_find.hpp"
 
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -37,44 +36,6 @@ std::set<IndexT> Get_Valid_Views
   return valid_idx;
 }
 
-// Based on: https://en.cppreference.com/w/cpp/algorithm/remove
-template<class ForwardIt, class UnaryPredicate>
-ForwardIt remove_if_sc(ForwardIt first, ForwardIt last, UnaryPredicate p, size_t cur_cnt, size_t abort_cnt, bool& aborted, bool& changed)
-{
-  changed = false;
-
-  aborted = cur_cnt < abort_cnt;
-
-  if (!aborted)
-  {
-    first = std::find_if(first, last, p);
-    if (first != last)
-    {
-      changed = true;
-      if (--cur_cnt < abort_cnt)
-      {
-        aborted = true;
-        return first;
-      }
-
-      for (ForwardIt i = first; ++i != last;)
-      {
-        if (!p(*i))
-        {
-          if (--cur_cnt < abort_cnt)
-          {
-            aborted = true;
-            break;
-          }
-          *first++ = std::move(*i);
-        }
-      }
-    }
-  }
-
-  return first;
-}
-
 // Remove tracks that have a small angle (tracks with tiny angle leads to instable 3D points)
 // Return the number of removed tracks
 IndexT RemoveOutliers_PixelResidualError
@@ -84,104 +45,101 @@ IndexT RemoveOutliers_PixelResidualError
   const unsigned int minTrackLength
 )
 {
+  Landmarks & landmarks = sfm_data.structure;
+  auto & views = sfm_data.views;
+  auto & intrinsics = sfm_data.intrinsics;
   IndexT outlier_count = 0;
-  auto& structure = sfm_data.structure;
-  Landmarks::iterator iterTracks = structure.begin();
+  Landmarks::iterator iterTracks = landmarks.begin();
   const double dThresholdPixelSquared = dThresholdPixel * dThresholdPixel;
-  const auto& poses = sfm_data.GetPoses();
-  const auto& intrinsics = sfm_data.GetIntrinsics();
-  for (auto iterTracks = std::begin(structure); iterTracks != std::end(structure); )
+
+  // Precisely counts outliers.  Cannot early out on known track deletion.
+  while (iterTracks != landmarks.end())
   {
-    auto& obs = iterTracks->second.obs.obs;
+    Observations & obs = iterTracks->second.obs;
+    Observations::iterator itObs = obs.begin();
 
-    size_t size_before = obs.size();
-    obs.erase(
-      std::remove_if(
-        std::begin(obs),
-        std::end(obs),
-        [&sfm_data, &poses, &intrinsics, iterTracks, dThresholdPixelSquared](const auto& obs_it_pair)
-        {
-          const View* view = sfm_data.views.at(obs_it_pair.first).get();
-          const geometry::Pose3& pose = poses.find(view->id_view)->second;
-          const cameras::IntrinsicBase * intrinsic = intrinsics.find(view->id_intrinsic)->second.get();
-          const Vec2 residual = intrinsic->residual(pose(iterTracks->second.X), Vec2(obs_it_pair.second.x[0], obs_it_pair.second.x[1]));
-
-          return residual.squaredNorm() > dThresholdPixelSquared;
-        }
-      ),
-      std::end(obs)
-    );
-
-    size_t size_after = obs.size();
-
-    if (size_after < minTrackLength)
-      structure.erase(iterTracks++);
+    bool eraseTrack = false;
+    while (itObs != obs.end())
+    {
+      const View * view = views.at(itObs->first).get();
+      const geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
+      const cameras::IntrinsicBase * intrinsic = intrinsics.at(view->id_intrinsic).get();
+      const Vec2 residual = intrinsic->residual(pose(iterTracks->second.X), itObs->second.x);
+      if (residual.squaredNorm() > dThresholdPixelSquared)
+      {
+        ++outlier_count;
+        itObs = obs.erase(itObs);
+      }
       else
-      ++iterTracks;
+        ++itObs;
+    }
 
-    outlier_count += ( size_before - size_after );
+    if (obs.empty() || obs.size() < minTrackLength)
+    {
+      iterTracks = landmarks.erase(iterTracks);
+    }
+    else
+    {
+      ++iterTracks;
+    }
   }
   return outlier_count;
 }
 
-// Remove tracks that have a small angle (tracks with tiny angle leads to instable 3D points)
 void RemoveOutliers_PixelResidualErrorWithoutCount
 (
   SfM_Data & sfm_data,
   const double dThresholdPixel,
   const unsigned int minTrackLength
 )
-    {
-  IndexT outlier_count = 0;
-  auto& structure = sfm_data.structure;
-  Landmarks::iterator iterTracks = structure.begin();
+{
+  Landmarks & landmarks = sfm_data.structure;
+  const auto & views = sfm_data.views;
+  const auto & intrinsics = sfm_data.intrinsics;
+  Landmarks::iterator iterTracks = landmarks.begin();
   const double dThresholdPixelSquared = dThresholdPixel * dThresholdPixel;
-  const auto& poses = sfm_data.GetPoses();
-  const auto& intrinsics = sfm_data.GetIntrinsics();
-  for (auto iterTracks = std::begin(structure); iterTracks != std::end(structure); )
+  while (iterTracks != landmarks.end())
   {
-    auto& obs = iterTracks->second.obs.obs;
-
-    int size_before = obs.size();
-    // Remove the identified objects from the collection, but stop the moment we reach a
-    // certain tolerance.
-    bool aborted;
-    bool changed;
-    auto it = remove_if_sc( // "short circuit"
-      std::begin(obs),
-      std::end(obs),
-      [&sfm_data, &poses, &intrinsics, iterTracks, dThresholdPixelSquared](const auto& obs_it_pair)
-      {
-        const View* view = sfm_data.views.at(obs_it_pair.first).get();
-        const geometry::Pose3& pose = poses.find(view->id_view)->second;
-        const cameras::IntrinsicBase* intrinsic = intrinsics.find(view->id_intrinsic)->second.get();
-        const Vec2 residual = intrinsic->residual(pose(iterTracks->second.X), Vec2(obs_it_pair.second.x[0], obs_it_pair.second.x[1]));
-
-        return residual.squaredNorm() > dThresholdPixelSquared;
-      },
-      size_before,
-      minTrackLength,
-      aborted, // Always initialized
-      changed  // Always initialized
-    );
-
-    // Aborted takes precedence and means we have reached the watermark and the iterTracks should be removed;
-    // we ignore obs in this case.
-    // Otherwise, examine the changed flag.
-    // If changed, then the obs entry needs an erase cleanup.
-    if (aborted)
-      {
-      structure.erase(iterTracks++);
-      }
-      else
+    Observations & obs = iterTracks->second.obs;
+    Observations::iterator itObs = obs.begin();
+    bool eraseTrack = false;
+    if (obs.empty() || (obs.size() < minTrackLength))
     {
-      // Notice we only std::erase when we want to preserve the track.
-      if (changed)
-      {
-        obs.erase(it, std::end(obs));
+      eraseTrack = true;
     }
+
+    if (!eraseTrack)
+    {
+      while (itObs != obs.end())
+      {
+        const View * view = views.at(itObs->first).get();
+        const geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
+        const cameras::IntrinsicBase * intrinsic = intrinsics.at(view->id_intrinsic).get();
+        const Vec2 residual = intrinsic->residual(pose(iterTracks->second.X), itObs->second.x);
+        if (residual.squaredNorm() > dThresholdPixelSquared)
+        {
+          const int cnt = obs.size();
+          if ((1 == cnt) || (cnt <= minTrackLength)) {
+            eraseTrack = true;
+            break;
+          }
+          itObs = obs.erase(itObs);
+        }
+        else
+        {
+          ++itObs;
+        }
+      }
+    }
+
+    if (eraseTrack)
+    {
+      iterTracks = landmarks.erase(iterTracks);
+    }
+    else
+    {
       ++iterTracks;
-  }
+    }
   }
 }
 
@@ -193,89 +151,86 @@ IndexT RemoveOutliers_AngleError
   const double dMinAcceptedAngle
 )
 {
-  std::unordered_map<const View*, std::pair<Mat3, const cameras::IntrinsicBase*>> poseInfo;
-  poseInfo.reserve(sfm_data.views.size());
-  const auto& poses = sfm_data.GetPoses();
-  const auto& intrinsics = sfm_data.GetIntrinsics();
-  for (const auto& it : sfm_data.views) {
-    auto tmp = poses.find(it.second->id_pose);
-    if (tmp != poses.end())
-    {
-      poseInfo.emplace(
-        std::piecewise_construct,
-        std::forward_as_tuple(it.second.get()),
-        std::forward_as_tuple(poses.find(it.second->id_view)->second.rotation().transpose(), intrinsics.find(it.second->id_intrinsic)->second.get())
-      );
-    }
-  }
-
-  auto& structure = sfm_data.structure;
-
-  std::vector<std::pair<bool, Vec3>> rays;
-  rays.resize(256); // Just a guess
-
   IndexT removedTrack_count = 0;
-  Landmarks::iterator iterTracks = structure.begin();
-  const auto& views = sfm_data.GetViews();
+  Landmarks::iterator iterTracks = sfm_data.structure.begin();
 
-  double dMinAcceptedAngleRadians = D2R(dMinAcceptedAngle);
-  while (iterTracks != structure.end())
-  {
-    Observations & obs = iterTracks->second.obs;
+  // Caching projections saves a little time (20%).
+  // Adding the early out saves a lot of time (3x faster).
+  std::vector<std::tuple<bool, Pose3, const cameras::IntrinsicBase*, Vec2>> objJPts;
+  Landmarks & landmarks = sfm_data.structure;
+  const auto & views = sfm_data.views;
+  const auto & intrinsics = sfm_data.intrinsics;
 
-    const int num_obs = obs.obs.size();
-    rays.resize(num_obs);
-
-    // Here we examine the track and its observations.
-    // If we find that the angle between any pair of observations is acceptable, we immediately advance to the next track.
-    // Otherwise, we will refine the test, potentially looking at all pairs of observations.  If we eventually find
-    // that none are acceptable, we remove the track.
-    for (size_t i = 0; i != num_obs; ++i)
-    {
-      // Build rays as needed
-      if (!rays[i].first)
-    {
-        const auto& obsIt = obs.obs[i];
-        const View* view = views.find(obsIt.first)->second.get();
-      const auto& pi = poseInfo.find(view)->second;
-
-        rays[i] = {
-          true, pi.first * pi.second->oneBearing(pi.second->get_ud_pixel(obsIt.second.x)).normalized()
-        };
-    }
-
-      for (size_t j = i+1; j != num_obs; ++j)
+  while (iterTracks != landmarks.end())
       {
-        // Build as needed
-        if (!rays[j].first)
-    {
-          const auto& obsIt = obs.obs[j];
-          const View* view = views.find(obsIt.first)->second.get();
-          const auto& pi = poseInfo.find(view)->second;
+    Observations & obs = iterTracks->second.obs;
+    double max_angle = 0.0;
 
-          rays[j] ={
-            true, pi.first * pi.second->oneBearing(pi.second->get_ud_pixel(obsIt.second.x)).normalized()
-          };
+    objJPts.resize( obs.size() );
+
+    // Remember, we are reusing the store; however, we need to
+    // reset the cached entries for the next iteration too.
+    for (auto & i : objJPts)
+    {
+      std::get<0>(i) = false;
+    }
+    int idxI = 0;
+    // WIP Could rewrite the loop to avoid the last obs calculation.
+    for (Observations::const_iterator itObs1 = obs.begin();
+      itObs1 != obs.end(); ++itObs1)
+    {
+      const View * view1 = views.at(itObs1->first).get();
+      // Getting the post incurs a modest penalty (20%)
+      const geometry::Pose3 pose1 = sfm_data.GetPoseOrDie(view1);
+      const cameras::IntrinsicBase * intrinsic1 = intrinsics.at(view1->id_intrinsic).get();
+      const Vec2 objIPt = intrinsic1->get_ud_pixel(itObs1->second.x);
+
+      Observations::const_iterator itObs2 = itObs1;
+      ++itObs2;
+      int idxJ = idxI+1;
+      for (; itObs2 != obs.end(); ++itObs2)
+      {
+        auto & cachedObjJInfo = objJPts[ idxJ ];
+        if (!std::get<0>( cachedObjJInfo))
+        {
+          const View * view2 = views.at(itObs2->first).get();
+          std::get<1>(cachedObjJInfo) = sfm_data.GetPoseOrDie(view2);
+          const cameras::IntrinsicBase * intrinsic2 = intrinsics.at(view2->id_intrinsic).get();
+          std::get<2>(cachedObjJInfo) = intrinsic2;
+          std::get<3>(cachedObjJInfo) = intrinsic2->get_ud_pixel(itObs2->second.x);
+          std::get<0>(cachedObjJInfo) = true;
         }
 
-        // JPB WIP OPT Probably can do this with just the normalized dot product.
-        const double angle = cameras::AngleBetweenRayInRadians(rays[i].second, rays[j].second);
-        if (angle >= dMinAcceptedAngleRadians)
-      {
-          goto early_out;
+        const double angle = AngleBetweenRay(
+          pose1, intrinsic1,
+          std::get<1>(cachedObjJInfo), std::get<2>(cachedObjJInfo),
+          objIPt, std::get<3>(cachedObjJInfo)
+        );
+
+        if (angle >= dMinAcceptedAngle)
+        {
+          goto EarlyOut;
+        }
+        max_angle = std::max(angle, max_angle);
+
+        ++idxJ;
       }
-      }
+
+      ++idxI;
     }
 
-    // None of the angles are large enough.
-      iterTracks = sfm_data.structure.erase(iterTracks);
+    if (max_angle < dMinAcceptedAngle)
+    {
+      iterTracks = landmarks.erase(iterTracks);
       ++removedTrack_count;
-    continue;
-
-  early_out:
-    // Found an angle large enough, go to the next track.
+    }
+    else
+    {
+EarlyOut:
       ++iterTracks;
+    }
   }
+
   return removedTrack_count;
 }
 
@@ -285,14 +240,15 @@ bool eraseMissingPoses
   const IndexT min_points_per_pose
 )
 {
+  // Fast path requires #poses and #views <= 256
+  // Replacing hash map map_PoseId_Count with arrays makes this about 3x faster.
+  // WIP Likely can be improved.
   bool removed_an_element = false;
   const Landmarks & landmarks = sfm_data.structure;
-
   int num_poses = sfm_data.GetPoses().size();
   int num_views = sfm_data.GetViews().size();
   std::array<IndexT, 256> view_poses;
-  std::array<IndexT, 256> map_poseid_cnts;
-  std::fill_n(std::begin(map_poseid_cnts), map_poseid_cnts.size(), 0);
+  std::array<IndexT, 256> map_poseid_cnts {}; // WIP Avoid?
   bool views_and_pose_ids_compact = true;
   if (num_views < 256)
   {
@@ -354,40 +310,35 @@ bool eraseMissingPoses
   }
   else
   {
-  // Count the observation poses occurrence
-  Hash_Map<IndexT, IndexT> map_PoseId_Count;
-  map_PoseId_Count.reserve(sfm_data.GetPoses().size());
-  // Init with 0 count (in order to be able to remove non referenced elements)
-  for (const auto & pose_it : sfm_data.GetPoses())
-  {
-    map_PoseId_Count[pose_it.first] = 0;
-  }
-
-  const auto& views = sfm_data.GetViews();
-  // Count occurrence of the poses in the Landmark observations
-  for (const auto & lanmark_it : landmarks)
-  {
-      for (const auto& obs_it : lanmark_it.second.obs)
+    // Count the observation poses occurrence
+    Hash_Map<IndexT, IndexT> map_PoseId_Count;
+    // Init with 0 count (in order to be able to remove non referenced elements)
+    for (const auto & pose_it : sfm_data.GetPoses())
     {
-      const IndexT ViewId = obs_it.first;
-      const View * v = views.find(ViewId)->second.get();
-      map_PoseId_Count[v->id_pose] += 1; // Default initialization is 0
+      map_PoseId_Count[pose_it.first] = 0;
+    }
+    
+    // Count occurrence of the poses in the Landmark observations
+    for (const auto & lanmark_it : landmarks)
+    {
+      const Observations & obs = lanmark_it.second.obs;
+      for (const auto & obs_it : obs)
+      {
+        const IndexT ViewId = obs_it.first;
+          const View * v = sfm_data.GetViews().at(ViewId).get();
+        map_PoseId_Count[v->id_pose] += 1; // Default initialization is 0
+      }
+    }
+    // If usage count is smaller than the threshold, remove the Pose
+    for (const auto & it : map_PoseId_Count)
+    {
+      if (it.second < min_points_per_pose)
+      {
+          sfm_data.poses.erase(it.first);
+          removed_an_element = true;
+      }
     }
   }
-
-  auto& poses = sfm_data.poses;
-  // If usage count is smaller than the threshold, remove the Pose
-  for (const auto & it : map_PoseId_Count)
-  {
-    if (it.second < min_points_per_pose)
-    {
-      poses.erase(it.first);
-        removed_an_element = true;
-    }
-  }
-  }
-
-
   return removed_an_element;
 }
 
@@ -397,9 +348,8 @@ bool eraseObservationsWithMissingPoses
   const IndexT min_points_per_landmark
 )
 {
-  bool removed_an_element = false;
-
-#if 1
+  // Fast path requires #poses and #views <= 256
+  // Replacing std::set<IndexT> pose_Index with an array makes this at least twice as fast;
   int num_poses = sfm_data.GetPoses().size();
   int num_views = sfm_data.GetViews().size();
   std::array<uint8_t, 256> view_ids;
@@ -416,13 +366,15 @@ bool eraseObservationsWithMissingPoses
       view_ids[i.first] = i.second->id_pose;
     }
   }
-  else {
+  else
+  {
     view_id_poses_compact = false;
   }
-  if (num_poses < 256 && view_id_poses_compact)
+
+  bool removed_an_element = false;
+  if (view_id_poses_compact)
   {
-    std::array<uint64_t, 4> pose_Index;
-    std::fill_n(std::begin(pose_Index), pose_Index.size(), 0);
+    std::array<uint64_t, 4> pose_Index {};
     for (const auto& i : sfm_data.GetPoses())
     {
       int pos = i.first>>6;
@@ -430,110 +382,98 @@ bool eraseObservationsWithMissingPoses
       pose_Index[pos] |= (1ULL << bit);
     }
 
-    auto& structure = sfm_data.structure;
-    for (auto itLandmarks = std::begin(structure); itLandmarks != std::end(structure); )
+    // Almost all of the time taken here is just accessing semi-cached obs data.
+    auto& landmarks = sfm_data.structure;
+    for (auto itLandmarks = std::begin(landmarks); itLandmarks != std::end(landmarks); )
     {
       auto& landmark_obs = itLandmarks->second.obs.obs;
-      bool aborted;
-      bool changed;
-      auto it = remove_if_sc(
-        std::begin(landmark_obs),
-        std::end(landmark_obs),
-        [&view_ids, &pose_Index, &removed_an_element](const auto& obs_it_pair)
+
+      bool erase_entire_landmark = false;
+      if (landmark_obs.empty() || (landmark_obs.size() < min_points_per_landmark))
+      {
+        erase_entire_landmark = true;
+      }
+
+      if (!erase_entire_landmark)
+      {
+        Observations::iterator itObs = landmark_obs.begin();
+        while (itObs != landmark_obs.end())
         {
-          const IndexT ViewId = obs_it_pair.first;
+          const IndexT ViewId = itObs->first;
           auto view_id_idx = view_ids[ViewId];
           int pos = view_id_idx>>6;
           int bit = view_id_idx & 63;
+          bool has_pose = pose_Index[pos] & ( 1ULL << bit );
+          if ( !has_pose )
+          {
+            removed_an_element = true;
+            const int cnt = landmark_obs.size();
+            if ((1 == cnt) || (cnt  <= min_points_per_landmark))
+            {
+              erase_entire_landmark = true;
+              break;
+            }
 
-          bool result = !( pose_Index[pos] & ( 1ULL << bit ) );
-          removed_an_element |= !!result;
+            itObs = landmark_obs.erase( itObs );
+           }
+           else
+           {
+              ++itObs;
+           }
+        }
+      }
 
-
-          return result;
-        },
-        landmark_obs.size(),
-        min_points_per_landmark,
-        aborted, // Always initialized
-        changed // Always initialized
-      );
-
-      // Aborted takes precedence and means we have reached the watermark and the itLandmarks should be removed;
-      // we ignore landmark_obs in this case.
-      // Otherwise, examine the changed flag.
-      // If changed, then the landmark_obs entry needs an erase cleanup.
-      if (aborted)
+      if (erase_entire_landmark)
       {
-        structure.erase(itLandmarks++);
+        // This erase takes a significant amount of time as the landmark is an unordered_map.
+        itLandmarks = landmarks.erase( itLandmarks );
       }
       else
       {
-        // Notice we only std::erase when we want to preserve the track.
-        if (changed)
-        {
-          landmark_obs.erase(it, std::end(landmark_obs));
-        }
         ++itLandmarks;
       }
     }
   }
   else
   {
-#endif
-  std::unordered_set<IndexT> pose_Index;
-  pose_Index.reserve(sfm_data.GetPoses().size() * 2);
-  std::transform(sfm_data.poses.cbegin(), sfm_data.poses.cend(),
-    std::inserter(pose_Index, pose_Index.begin()), stl::RetrieveKey());
+    std::set<IndexT> pose_Index;
+    std::transform(sfm_data.poses.cbegin(), sfm_data.poses.cend(),
+      std::inserter(pose_Index, pose_Index.begin()), stl::RetrieveKey());
 
-  auto& structure = sfm_data.structure;
-  // For each landmark:
-  //  - Check if we need to keep the observations & the track
-  Landmarks::iterator itLandmarks = structure.begin();
-  const auto& views = sfm_data.GetViews();
-    for (auto itLandmarks = std::begin(structure); itLandmarks != std::end(structure); )
-  {
-      auto& landmark_obs = itLandmarks->second.obs.obs;
-      bool aborted;
-      bool changed;
-      auto it = remove_if_sc(
-        std::begin(landmark_obs),
-        std::end(landmark_obs),
-        [&views, &pose_Index, &removed_an_element](const auto& obs_it_pair)
-  {
-          const IndexT ViewId = obs_it_pair.first;
-          const View * v = views.find(ViewId)->second.get();
-          bool result = pose_Index.count(v->id_pose) == 0;
-          removed_an_element |= result;
-
-          return result;
-        },
-        landmark_obs.size(),
-        min_points_per_landmark,
-        aborted, // Always initialized
-        changed  // Always initialized
-      );
-
-      // Aborted takes precedence and means we have reached the watermark and the itLandmarks should be removed;
-      // we ignore landmark_obs in this case.
-      // Otherwise, examine the changed flag.
-      // If changed, then the landmark_obs entry needs an erase cleanup.
-      if (aborted)
+    // For each landmark:
+    //  - Check if we need to keep the observations & the track
+    auto & landmarks = sfm_data.structure;
+    auto & views = sfm_data.GetViews();
+    Landmarks::iterator itLandmarks = landmarks.begin();
+    while (itLandmarks != landmarks.end())
+    {
+      Observations & obs = itLandmarks->second.obs;
+      Observations::iterator itObs = obs.begin();
+      while (itObs != obs.end())
       {
-        structure.erase(itLandmarks++);
+        const IndexT ViewId = itObs->first;
+        const View * v = views.at(ViewId).get();
+        if (pose_Index.count(v->id_pose) == 0)
+        {
+          itObs = obs.erase(itObs);
+          removed_an_element = true;
+        }
+        else
+        {
+          ++itObs;
+        }
+      }
+
+      if (obs.empty() || obs.size() < min_points_per_landmark)
+      {
+        itLandmarks = landmarks.erase(itLandmarks);
       }
       else
       {
-        // Notice we only std::erase when we want to preserve the track.
-        if (changed)
-        {
-          landmark_obs.erase(it, std::end(landmark_obs));
+        ++itLandmarks;
+      }
     }
-      ++itLandmarks;
   }
-    }
-#if 1
-  }
-#endif
 
   return removed_an_element;
 }
@@ -581,7 +521,8 @@ bool IsTracksOneCC
   const Landmarks & landmarks = sfm_data.structure;
   for (const auto & Landmark_it : landmarks)
   {
-    for (const auto & obs_it : Landmark_it.second.obs)
+    const Observations & obs = Landmark_it.second.obs;
+    for (const auto & obs_it : obs)
     {
       if (view_renumbering.count(obs_it.first) == 0)
       {
@@ -596,8 +537,9 @@ bool IsTracksOneCC
   // Link track observations in connected component
   for (const auto & Landmark_it : landmarks)
   {
+    const Observations & obs = Landmark_it.second.obs;
     std::set<IndexT> id_to_link;
-    for (const auto & obs_it : Landmark_it.second.obs)
+    for (const auto& obs_it : obs)
     {
       id_to_link.insert(view_renumbering.at(obs_it.first));
     }
@@ -639,7 +581,8 @@ void KeepLargestViewCCTracks
     const Landmarks & landmarks = sfm_data.structure;
     for (const auto & Landmark_it : landmarks)
     {
-      for (const auto & obs_it : Landmark_it.second.obs)
+      const Observations& obs = Landmark_it.second.obs;
+      for (const auto & obs_it : obs)
       {
         if (view_renumbering.count(obs_it.first) == 0)
         {
@@ -656,8 +599,9 @@ void KeepLargestViewCCTracks
   Landmarks & landmarks = sfm_data.structure;
   for (const auto & Landmark_it : landmarks)
   {
+    const Observations & obs = Landmark_it.second.obs;
     std::set<IndexT> id_to_link;
-    for (const auto& obs_it : Landmark_it.second.obs)
+    for (const auto & obs_it : obs)
     {
       id_to_link.insert(view_renumbering.at(obs_it.first));
     }
@@ -699,12 +643,12 @@ void KeepLargestViewCCTracks
         //  checking the CC of each track is equivalent to check the CC of any observation of it.
         // So we check only the first
         const Observations & obs = itLandmarks->second.obs;
-        auto itObs = obs.begin();
+        Observations::const_iterator itObs = obs.begin();
         if (!obs.empty())
         {
           if (uf_tree.Find(view_renumbering.at(itObs->first)) != parent_id_largest_cc)
           {
-            landmarks.erase(itLandmarks++);
+            itLandmarks = landmarks.erase(itLandmarks);
           }
           else
           {
