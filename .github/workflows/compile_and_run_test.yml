@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, develop_keypoint_orientation_sfm]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, develop_keypoint_orientation_sfm]
 
  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -33,17 +33,16 @@ jobs:
           -DOpenMVG_BUILD_TESTS=ON \
           -DOpenMVG_BUILD_EXAMPLES=ON \
           -DOpenMVG_BUILD_SOFTWARES=ON \
-          -DSCHUR_SPECIALIZATIONS=OFF \
-          -DTARGET_ARCHITECTURE=core
+          -DSCHUR_SPECIALIZATIONS=OFF
         shell: bash
 
       - name: Build
         working-directory: ./build
         run: |
            if [ "$RUNNER_OS" == "Windows" ]; then
-              cmake --build . --config Release
+              cmake --build . --config Release --parallel 4
            else
-              cmake --build . -- -j$(nproc)
+              cmake --build . -j$(getconf _NPROCESSORS_ONLN)
            fi
         shell: bash
 
@@ -51,4 +50,5 @@ jobs:
       - name: Unit Tests
         working-directory: ./build
         run: |
-          ctest -j$(nproc) --build-config Release
+          ctest -j$(getconf _NPROCESSORS_ONLN) --build-config Release
+        shell: bash

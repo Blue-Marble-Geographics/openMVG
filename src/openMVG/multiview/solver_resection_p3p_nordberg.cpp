@@ -93,24 +93,6 @@ static void gauss_newton_refineL(Vec3 &L,
   }
 };
 
-static inline bool root2real(const double b, const double c, double & r1, double & r2)
-{
-  const double v = b * b -4.0 * c;
-  if (v <= 0.0) {
-      r1 = r2 = -0.5 * b;
-      return v >= 0.0;
-  }
-  const double y = std::sqrt(v);
-  if (b < 0.0) {
-      r1 = 0.5 * (-b + y);
-      r2 = 0.5 * (-b - y);
-  } else {
-      r1 = 2.0 * c / (-b + y);
-      r2 = 2.0 * c / (-b - y);
-  }
-  return true;
-};
-
 /**
  * @brief This function finds a single root of the cubic polynomial equation
  * @param b Coefficient of quadratic parameter
@@ -122,10 +104,10 @@ static inline bool root2real(const double b, const double c, double & r1, double
  *
  * The return root is as stable as possible in the sense that it has as high
  * derivative as possible.  The solution is found by simple Newton-Raphson
- * iterations, and the trick is to choose the intial solution r0 in a clever
+ * iterations, and the trick is to choose the initial solution r0 in a clever
  * way.
  *
- * The intial solution is found by considering 5 cases:
+ * The initial solution is found by considering 5 cases:
  *
  * Cases I and II: h has no stationary points. In this case its derivative
  * is positive.  The inital solution to the NR-iteration is r0 here h has
@@ -182,7 +164,7 @@ static double cubick(const double &b, const double &c, const double &d)
   // Do ITER Newton-Raphson iterations
   // Break if position of root changes less than 1e-13
   // double starterr=std::abs(r0*(r0*(r0 + b) + c) + d);
-  
+
   // TODO(RJ:) I have hardcoded the number of iteration here, it's hardcoded in a macro definition in the orginal implementation
   // according to the author, increasing it could lead to a better solution (more robust)
   for (unsigned int cnt = 0; cnt < 50; ++cnt)
@@ -225,7 +207,7 @@ static void eigwithknown0(const Mat3 &x, Mat3 &E, Vec3 &L)
              x(0, 0) * (x(1, 1) + x(2, 2)) + x(1, 1) * x(2, 2);
   double e1, e2;
   // roots(poly(x))
-  root2real(b, c, e1, e2);
+  P3PSolver_Nordberg::root2real(b, c, e1, e2);
 
   if (std::abs(e1) < std::abs(e2))
     std::swap(e1, e2);
@@ -391,7 +373,7 @@ bool computePosesNordberg(
           const double c = (a23 * u1*u1 - a12 * u1*u1 + a23 * u2*u2 - a23 * b12 *u1 *u2)/a;
 
           std::array<double, 2> taus;
-          if (!root2real(b, c, taus[0], taus[1])) continue;
+          if (!P3PSolver_Nordberg::root2real(b, c, taus[0], taus[1])) continue;
           for (const double tau : taus)
           {
             if (tau<=0) continue;
@@ -416,7 +398,7 @@ bool computePosesNordberg(
           const double c = ((a13 - a12) * w0 * w0 + a13 * b12 * w0 + a13) * a;
 
           std::array<double, 2> taus;
-          if (!root2real(b, c, taus[0], taus[1])) continue;
+          if (!P3PSolver_Nordberg::root2real(b, c, taus[0], taus[1])) continue;
           for (const double tau : taus)
           {
               if(tau<=0.) continue;

@@ -89,19 +89,19 @@ int main(int argc, char *argv[]) {
     Image<uint8_t> image_gray, image_gray_ud;
     system::LoggerProgress my_progress_bar( sfm_data.GetViews().size(), "- EXTRACT UNDISTORTED IMAGES -" );
 
-    #ifdef OPENMVG_USE_OPENMP
-    const unsigned int nb_max_thread = omp_get_max_threads();
-    #endif
-
 #ifdef OPENMVG_USE_OPENMP
-    omp_set_num_threads(iNumThreads);
-    #pragma omp parallel for schedule(dynamic) if (iNumThreads > 0) private(image, image_ud, image_gray, image_gray_ud)
+    const unsigned int nb_max_thread = omp_get_max_threads();
+
+    if (iNumThreads > 0) {
+        omp_set_num_threads(iNumThreads);
+    } else {
+        omp_set_num_threads(nb_max_thread);
+    }
+
+    #pragma omp parallel for schedule(dynamic) private(image, image_ud, image_gray, image_gray_ud)
 #endif
     for (int i = 0; i < static_cast<int>(sfm_data.views.size()); ++i)
     {
-#ifdef OPENMVG_USE_OPENMP
-      if (iNumThreads == 0) omp_set_num_threads(nb_max_thread);
-#endif
       Views::const_iterator iterViews = sfm_data.views.begin();
       std::advance(iterViews, i);
 

@@ -263,7 +263,7 @@ int main(int argc, char **argv)
         omp_set_num_threads(nb_max_thread);
     }
 
-    #pragma omp parallel for schedule(dynamic) if (iNumThreads > 0) private(imageGray)
+    #pragma omp parallel for schedule(dynamic) private(imageGray)
 #endif
     for (int i = 0; i < static_cast<int>(sfm_data.views.size()); ++i)
     {

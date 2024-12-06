@@ -135,13 +135,13 @@ void GuidedMatching(
   assert(xLeft.cols() == lDescriptors.size());
   assert(xRight.cols() == rDescriptors.size());
 
-  MetricT metric;
 
   // Looking for the corresponding points that have to satisfy:
   //   1. a geometric distance below the provided Threshold
   //   2. a distance ratio between descriptors of valid geometric correspondencess
-
-  for (size_t i = 0; i < xLeft.cols(); ++i) {
+  #pragma omp parallel for
+  for (int i = 0; i < xLeft.cols(); ++i) {
+    MetricT metric;
 
     distanceRatio<typename MetricT::ResultType > dR;
     for (size_t j = 0; j < xRight.cols(); ++j) {
@@ -159,6 +159,7 @@ void GuidedMatching(
     // Add correspondence only iff the distance ratio is valid
     if (dR.isValid(distRatio))  {
       // save the best corresponding index
+      #pragma omp critical
       vec_corresponding_index.push_back(matching::IndMatch(i,dR.idx));
     }
   }
@@ -200,7 +201,8 @@ void GuidedMatching(
     rRegionsPos[i] = camR ? camR->get_ud_pixel(rRegions.GetRegionPosition(i)) : rRegions.GetRegionPosition(i);
   }
 
-  for (size_t i = 0; i < lRegions.RegionCount(); ++i) {
+  #pragma omp parallel for
+  for (int i = 0; i < lRegions.RegionCount(); ++i) {
 
     distanceRatio<double> dR;
     for (size_t j = 0; j < rRegions.RegionCount(); ++j) {
@@ -218,6 +220,7 @@ void GuidedMatching(
     // Add correspondence only iff the distance ratio is valid
     if (dR.isValid(distRatio))  {
       // save the best corresponding index
+      #pragma omp critical
       vec_corresponding_index.push_back(matching::IndMatch(i,dR.idx));
     }
   }
